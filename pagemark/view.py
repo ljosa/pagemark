@@ -98,7 +98,11 @@ class TerminalTextView(TextView):
             # Check if we need a page break after this line
             if (doc_line + 1) % self.LINES_PER_PAGE == 0 and doc_line > 0:
                 if len(self.lines) < self.num_rows:
-                    self.lines.append("─" * self.num_columns)  # Page break line
+                    page_num = (doc_line + 1) // self.LINES_PER_PAGE + 1
+                    page_text = f" Page {page_num} "
+                    padding = (self.num_columns - len(page_text)) // 2
+                    page_break_line = "─" * padding + page_text + "─" * (self.num_columns - padding - len(page_text))
+                    self.lines.append(page_break_line)  # Page break line with page number
         
         end_position = CursorPosition(paragraph_index, para_counts[self.first_paragraph_line_offset + lines_wanted - 1] + 1)
         
@@ -122,7 +126,11 @@ class TerminalTextView(TextView):
                 # Check if we need a page break after this line
                 if doc_line % self.LINES_PER_PAGE == (self.LINES_PER_PAGE - 1) and doc_line >= (self.LINES_PER_PAGE - 1):
                     if len(self.lines) < self.num_rows:
-                        self.lines.append("─" * self.num_columns)  # Page break line
+                        page_num = (doc_line // self.LINES_PER_PAGE) + 2  # +2 because we're at end of page
+                        page_text = f" Page {page_num} "
+                        padding = (self.num_columns - len(page_text)) // 2
+                        page_break_line = "─" * padding + page_text + "─" * (self.num_columns - padding - len(page_text))
+                        self.lines.append(page_break_line)  # Page break line with page number
         
         self.end_paragraph_index = paragraph_index + 1
 
@@ -177,9 +185,9 @@ class TerminalTextView(TextView):
         elif self.visual_cursor_y >= len(self.lines):
             self.visual_cursor_y = len(self.lines) - 1
         
-        # Skip over page break lines
+        # Skip over page break lines (they contain "─" and "Page")
         while (self.visual_cursor_y < len(self.lines) and 
-               self.lines[self.visual_cursor_y].startswith("─")):
+               "─" in self.lines[self.visual_cursor_y] and "Page" in self.lines[self.visual_cursor_y]):
             self.visual_cursor_y += 1
         
         # Calculate visual cursor X position within the line
@@ -193,9 +201,9 @@ class TerminalTextView(TextView):
         if self.visual_cursor_x == self.num_columns:
             # Cursor wraps to start of next line
             self.visual_cursor_y += 1
-            # Skip page break if present
+            # Skip page break if present (they contain "─" and "Page")
             while (self.visual_cursor_y < len(self.lines) and 
-                   self.lines[self.visual_cursor_y].startswith("─")):
+                   "─" in self.lines[self.visual_cursor_y] and "Page" in self.lines[self.visual_cursor_y]):
                 self.visual_cursor_y += 1
             self.visual_cursor_x = 0
         elif self.visual_cursor_x < 0:
