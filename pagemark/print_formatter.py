@@ -1,7 +1,50 @@
 """Document formatter for printing - formats text into 85x66 character pages."""
 
 from typing import List, Tuple
-from .view import render_paragraph
+
+
+def render_paragraph(text: str, width: int) -> List[str]:
+    """Render a paragraph into lines with word wrapping.
+    
+    Args:
+        text: The paragraph text to render
+        width: Maximum width of each line
+        
+    Returns:
+        List of wrapped lines
+    """
+    if not text:
+        return [""]  # Empty paragraph = one empty line
+        
+    words = text.split()
+    if not words:
+        return [""]
+        
+    lines = []
+    current_line = []
+    current_length = 0
+    
+    for word in words:
+        word_length = len(word)
+        
+        # Check if adding this word would exceed the width
+        if current_line and current_length + 1 + word_length > width:
+            # Finish current line
+            lines.append(" ".join(current_line))
+            current_line = [word]
+            current_length = word_length
+        else:
+            # Add word to current line
+            if current_line:
+                current_length += 1  # Space before word
+            current_line.append(word)
+            current_length += word_length
+    
+    # Add any remaining words
+    if current_line:
+        lines.append(" ".join(current_line))
+        
+    return lines if lines else [""]
 
 
 class PrintFormatter:
@@ -39,8 +82,8 @@ class PrintFormatter:
         # First, format text content into 65-char wide lines
         text_lines = []
         for paragraph in self.paragraphs:
-            # Use the same render_paragraph function as view.py for consistency
-            lines, _ = render_paragraph(paragraph, self.TEXT_WIDTH)
+            # Use render_paragraph to wrap text
+            lines = render_paragraph(paragraph, self.TEXT_WIDTH)
             text_lines.extend(lines)
         
         # Now create full pages with margins
