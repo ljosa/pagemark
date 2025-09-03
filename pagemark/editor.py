@@ -205,34 +205,49 @@ class Editor:
         if self.error_mode:
             return
 
-        # Handle special keys
-        if key.is_sequence:
-            # Check for Alt+arrow combinations (ESC sequences)
-            if str(key) == '\x1b[1;3D' or str(key) == '\x1bb':  # Alt-left
+        # Handle Ctrl shortcuts first (not sequences)
+        if str(key) == '\x04':  # Ctrl-D (delete-char)
+            self.model.delete_char()
+            self.modified = True
+            self.view.update_desired_x()
+            return
+        elif str(key) == '\x01':  # Ctrl-A (move-beginning-of-line)
+            self.model.move_beginning_of_line()
+            self.view.update_desired_x()
+            return
+        elif str(key) == '\x05':  # Ctrl-E (move-end-of-line)
+            self.model.move_end_of_line()
+            self.view.update_desired_x()
+            return
+        elif str(key) == '\x0b':  # Ctrl-K (kill-line)
+            self.model.kill_line()
+            self.modified = True
+            self.view.update_desired_x()
+            return
+        
+        # Check for Alt shortcuts (can be sequences or escape + char)
+        key_str = str(key)
+        if key_str.startswith('\x1b'):
+            # Alt-left variations
+            if key_str in ('\x1b[1;3D', '\x1bb', '\x1b[D'):  
                 self.model.left_word()
                 self.view.update_desired_x()
-            elif str(key) == '\x1b[1;3C' or str(key) == '\x1bf':  # Alt-right  
+                return
+            # Alt-right variations  
+            elif key_str in ('\x1b[1;3C', '\x1bf', '\x1b[C'):
                 self.model.right_word()
                 self.view.update_desired_x()
-            elif str(key) == '\x1b\x7f' or str(key) == '\x1b\x08':  # Alt-backspace
+                return
+            # Alt-backspace variations
+            elif key_str in ('\x1b\x7f', '\x1b\x08', '\x1b\x1b[3~'):
                 self.model.backward_kill_word()
                 self.modified = True
                 self.view.update_desired_x()
-            elif str(key) == '\x04':  # Ctrl-D (delete-char)
-                self.model.delete_char()
-                self.modified = True
-                self.view.update_desired_x()
-            elif str(key) == '\x01':  # Ctrl-A (move-beginning-of-line)
-                self.model.move_beginning_of_line()
-                self.view.update_desired_x()
-            elif str(key) == '\x05':  # Ctrl-E (move-end-of-line)
-                self.model.move_end_of_line()
-                self.view.update_desired_x()
-            elif str(key) == '\x0b':  # Ctrl-K (kill-line)
-                self.model.kill_line()
-                self.modified = True
-                self.view.update_desired_x()
-            elif key.code == self.terminal.term.KEY_LEFT:
+                return
+        
+        # Handle special keys
+        if key.is_sequence:
+            if key.code == self.terminal.term.KEY_LEFT:
                 self.model.left_char()
                 self.view.update_desired_x()  # Reset desired X on horizontal movement
             elif key.code == self.terminal.term.KEY_RIGHT:
@@ -253,8 +268,8 @@ class Editor:
         else:
             # Regular character - insert it
             char = str(key)
-            # Filter out control characters except tab
-            if ord(char) >= 32 or char == '\t':
+            # Filter out control characters and escape sequences
+            if not char.startswith('\x1b') and (ord(char[0]) >= 32 or char == '\t'):
                 self.model.insert_text(char)
                 self.modified = True
                 self.view.update_desired_x()  # Reset desired X after typing
