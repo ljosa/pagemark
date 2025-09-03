@@ -90,3 +90,54 @@ class TextModel:
             self.cursor_position.paragraph_index -= 1
             self.cursor_position.character_index = len(self.paragraphs[self.cursor_position.paragraph_index])
         self.view.render()
+    
+    def right_word(self):
+        """Move cursor forward by one word (Emacs-style)."""
+        para = self.paragraphs[self.cursor_position.paragraph_index]
+        pos = self.cursor_position.character_index
+        
+        # Skip current word characters
+        while pos < len(para) and not para[pos].isspace():
+            pos += 1
+        
+        # Skip whitespace
+        while pos < len(para) and para[pos].isspace():
+            pos += 1
+        
+        if pos < len(para):
+            # Found next word in same paragraph
+            self.cursor_position.character_index = pos
+        elif self.cursor_position.paragraph_index + 1 < len(self.paragraphs):
+            # Move to start of next paragraph
+            self.cursor_position.paragraph_index += 1
+            self.cursor_position.character_index = 0
+        else:
+            # At end of document
+            self.cursor_position.character_index = len(para)
+        
+        self.view.render()
+    
+    def left_word(self):
+        """Move cursor backward by one word (Emacs-style)."""
+        para = self.paragraphs[self.cursor_position.paragraph_index]
+        pos = self.cursor_position.character_index
+        
+        if pos > 0:
+            # Move back one position to start
+            pos -= 1
+            
+            # Skip whitespace backwards
+            while pos > 0 and para[pos].isspace():
+                pos -= 1
+            
+            # Skip word characters backwards
+            while pos > 0 and not para[pos - 1].isspace():
+                pos -= 1
+            
+            self.cursor_position.character_index = pos
+        elif self.cursor_position.paragraph_index > 0:
+            # Move to end of previous paragraph
+            self.cursor_position.paragraph_index -= 1
+            self.cursor_position.character_index = len(self.paragraphs[self.cursor_position.paragraph_index])
+        
+        self.view.render()

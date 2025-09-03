@@ -207,7 +207,14 @@ class Editor:
 
         # Handle special keys
         if key.is_sequence:
-            if key.code == self.terminal.term.KEY_LEFT:
+            # Check for Alt+arrow combinations (ESC sequences)
+            if str(key) == '\x1b[1;3D' or str(key) == '\x1bb':  # Alt-left
+                self.model.left_word()
+                self.view.update_desired_x()
+            elif str(key) == '\x1b[1;3C' or str(key) == '\x1bf':  # Alt-right  
+                self.model.right_word()
+                self.view.update_desired_x()
+            elif key.code == self.terminal.term.KEY_LEFT:
                 self.model.left_char()
                 self.view.update_desired_x()  # Reset desired X on horizontal movement
             elif key.code == self.terminal.term.KEY_RIGHT:
