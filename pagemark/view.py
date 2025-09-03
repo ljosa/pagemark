@@ -20,11 +20,11 @@ def render_paragraph(paragraph: str, num_columns: int) -> tuple[list[str], list[
     for word in words:
         if not current_line:
             # First word on the line
-            if len(word) <= num_columns:
+            if len(word) < num_columns:
                 current_line = word
             else:
                 # Word is too long, break it
-                while len(word) > num_columns:
+                while len(word) >= num_columns:
                     lines.append(word[:num_columns])
                     char_count += num_columns
                     cumulative_counts.append(char_count)
@@ -33,18 +33,18 @@ def render_paragraph(paragraph: str, num_columns: int) -> tuple[list[str], list[
                     current_line = word
         else:
             # Check if word fits on current line
-            if len(current_line) + 1 + len(word) <= num_columns:
+            if len(current_line) + 1 + len(word) < num_columns:
                 current_line += " " + word
             else:
                 # Start new line
                 lines.append(current_line)
                 char_count += len(current_line) + 1  # +1 for the space that would have been added
                 cumulative_counts.append(char_count)
-                if len(word) <= num_columns:
+                if len(word) < num_columns:
                     current_line = word
                 else:
                     # Word is too long, break it
-                    while len(word) > num_columns:
+                    while len(word) >= num_columns:
                         lines.append(word[:num_columns])
                         char_count += num_columns
                         cumulative_counts.append(char_count)
@@ -97,6 +97,11 @@ class TerminalTextView(TextView):
             self.center_view_on_cursor()
 
         self._set_visual_cursor_position()
+        
+        # Add empty line if cursor is at the start of a new visual line
+        # This happens when text exactly fills a line and cursor is after it
+        if self.visual_cursor_y == len(self.lines) and len(self.lines) < self.num_rows:
+            self.lines.append("")
 
     def _set_visual_cursor_position(self):
         # Set visual cursor position
@@ -114,10 +119,19 @@ class TerminalTextView(TextView):
             if line_index == 0:
                 self.visual_cursor_x = self.model.cursor_position.character_index
             else:
-                self.visual_cursor_x = self.model.cursor_position.character_index - para_counts[line_index - 1] - 1
-            if self.visual_cursor_x < 0:
+                # Calculate position within the current line
+                # No -1 needed here, as the space is already counted in para_counts
+                self.visual_cursor_x = self.model.cursor_position.character_index - para_counts[line_index - 1]
+
+            # Handle cursor at end of line that exactly fills width
+            if self.visual_cursor_x == self.num_columns:
+                # Cursor wraps to start of next line
+                self.visual_cursor_y += 1
                 self.visual_cursor_x = 0
-            elif self.visual_cursor_x >= self.num_columns:
+            elif self.visual_cursor_x < 0:
+                self.visual_cursor_x = 0
+            elif self.visual_cursor_x > self.num_columns:
+                # This shouldn't happen with proper wrapping
                 self.visual_cursor_x = self.num_columns - 1
 
     def center_view_on_cursor(self):
