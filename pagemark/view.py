@@ -198,9 +198,20 @@ class TerminalTextView(TextView):
         # Find which line within the cursor paragraph the cursor is on
         _, para_counts = render_paragraph(self.model.paragraphs[cursor_para_idx], self.num_columns)
         line_index = 0
-        while (line_index < len(para_counts) and
-               para_counts[line_index] < self.model.cursor_position.character_index):
-            line_index += 1
+        char_idx = self.model.cursor_position.character_index
+        
+        # Special case: if cursor is exactly at a line boundary (para_counts value),
+        # it should be on the next line (start of next line, not end of current)
+        for i in range(len(para_counts) - 1):
+            if char_idx == para_counts[i]:
+                line_index = i + 1
+                break
+        else:
+            # Normal case: find which line contains this character
+            while (line_index < len(para_counts) and
+                   para_counts[line_index] < char_idx):
+                line_index += 1
+        
         cursor_doc_line += line_index
         
         # Calculate number of page breaks between start of view and cursor
