@@ -4,6 +4,9 @@ import os
 import sys
 import select
 import signal
+import termios
+import tempfile
+import errno
 from .terminal import TerminalInterface
 from .model import TextModel
 from .view import TerminalTextView
@@ -26,6 +29,12 @@ class Editor:
         self.error_mode = False  # True when terminal is too narrow
         # Create pipe for resize signaling
         self._resize_pipe_r, self._resize_pipe_w = os.pipe()
+        # File handling
+        self.filename = None
+        self.modified = False
+        self.status_message = None
+        self.prompt_mode = None  # None, 'save_filename', 'save_filename_quit', or 'quit_confirm'
+        self.prompt_input = ""
 
     def _handle_resize(self, signum, frame):
         """Handle terminal resize signal."""
@@ -44,6 +53,17 @@ class Editor:
         try:
             # Main event loop
             with self.terminal.term.cbreak():
+                # Disable flow control AFTER entering cbreak mode
+                old_settings = None
+                try:
+                    old_settings = termios.tcgetattr(sys.stdin)
+                    new_settings = list(old_settings)  # Make it mutable
+                    # Disable IXON/IXOFF in input flags (index 0) to allow Ctrl-S and Ctrl-Q
+                    new_settings[0] &= ~(termios.IXON | termios.IXOFF)
+                    termios.tcsetattr(sys.stdin, termios.TCSANOW, new_settings)
+                except (termios.error, AttributeError, OSError):
+                    pass
+                
                 # Initial draw
                 need_draw = True
                 
@@ -89,6 +109,13 @@ class Editor:
                             # Process keys
                             self._handle_key(key)
                             need_draw = True
+                
+                # Restore terminal settings before exiting cbreak
+                if old_settings:
+                    try:
+                        termios.tcsetattr(sys.stdin, termios.TCSANOW, old_settings)
+                    except:
+                        pass
 
         except KeyboardInterrupt:
             # Handle Ctrl-C gracefully
@@ -106,12 +133,22 @@ class Editor:
         # Calculate left margin for centering
         left_margin = (self.terminal.width - self.VIEW_WIDTH) // 2
 
+        # Prepare status override if in prompt mode or showing a message
+        status_override = None
+        if self.prompt_mode in ('save_filename', 'save_filename_quit'):
+            status_override = f" File to save in: {self.prompt_input}"
+        elif self.prompt_mode == 'quit_confirm':
+            status_override = " Save file? (y, n) "
+        elif self.status_message:
+            status_override = f" {self.status_message}"
+
         self.terminal.draw_lines(
             self.view.lines,
             self.view.visual_cursor_y,
             self.view.visual_cursor_x,
             left_margin=left_margin,
-            view_width=self.VIEW_WIDTH
+            view_width=self.VIEW_WIDTH,
+            status_override=status_override
         )
 
     def _draw_error(self):
@@ -127,9 +164,29 @@ class Editor:
         Args:
             key: blessed.keyboard.Keystroke object
         """
+        # Clear status message on any keypress (except in prompt mode)
+        if self.status_message and not self.prompt_mode:
+            self.status_message = None
+
+        # Handle prompt modes first
+        if self.prompt_mode in ('save_filename', 'save_filename_quit'):
+            self._handle_filename_prompt(key)
+            return
+        elif self.prompt_mode == 'quit_confirm':
+            self._handle_quit_confirm(key)
+            return
+
         # Check for quit command (Ctrl-Q)
-        if key == '\x11':  # Ctrl-Q
-            self.running = False
+        if not key.is_sequence and str(key) == '\x11':  # Ctrl-Q
+            if self.modified:
+                self.prompt_mode = 'quit_confirm'
+            else:
+                self.running = False
+            return
+
+        # Check for save command (Ctrl-S)
+        if not key.is_sequence and str(key) == '\x13':  # Ctrl-S
+            self._handle_save()
             return
 
         # Don't process other keys if in error mode
@@ -150,9 +207,11 @@ class Editor:
                 self.view.move_cursor_down()
             elif key.code == self.terminal.term.KEY_BACKSPACE or key.code == 263:
                 self._handle_backspace()
+                self.modified = True
                 self.view.update_desired_x()  # Reset desired X after editing
             elif key.code == self.terminal.term.KEY_ENTER:
                 self.model.insert_text('\n')
+                self.modified = True
                 self.view.update_desired_x()  # Reset desired X after editing
         else:
             # Regular character - insert it
@@ -160,6 +219,7 @@ class Editor:
             # Filter out control characters except tab
             if ord(char) >= 32 or char == '\t':
                 self.model.insert_text(char)
+                self.modified = True
                 self.view.update_desired_x()  # Reset desired X after typing
 
     def _handle_backspace(self):
@@ -193,29 +253,138 @@ class Editor:
         Args:
             filename: Path to file to load
         """
+        self.filename = filename
         try:
-            with open(filename, 'r') as f:
+            with open(filename, 'r', encoding='utf-8') as f:
                 content = f.read()
                 paragraphs = content.split('\n') if content else [""]
                 self.model = TextModel(self.view, paragraphs=paragraphs)
                 self.view.render()
+                self.modified = False
         except FileNotFoundError:
             # New file - start with empty document
-            pass
+            self.modified = False
         except Exception as e:
             print(f"Error loading file: {e}")
             sys.exit(1)
 
     def save_file(self, filename: str):
-        """Save the current document to a file.
+        """Save the current document to a file atomically.
 
         Args:
             filename: Path to save file to
+        
+        Returns:
+            True if save succeeded, False otherwise
         """
         try:
             content = '\n'.join(self.model.paragraphs)
-            with open(filename, 'w') as f:
-                f.write(content)
-        except Exception:
-            # In a real app, show error in status line
-            pass
+            
+            # Write to a temporary file in the same directory for atomic save
+            # This ensures we're on the same filesystem for the rename operation
+            dir_name = os.path.dirname(filename) or '.'
+            
+            # Create temp file with same suffix as target
+            suffix = os.path.splitext(filename)[1]
+            with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', 
+                                           dir=dir_name, suffix=suffix, 
+                                           delete=False) as temp_file:
+                temp_filename = temp_file.name
+                temp_file.write(content)
+                temp_file.flush()
+                os.fsync(temp_file.fileno())  # Ensure data is written to disk
+            
+            # Atomic rename - this is atomic on POSIX systems
+            # On Windows, it will overwrite existing file atomically
+            os.replace(temp_filename, filename)
+            
+            self.filename = filename
+            self.modified = False
+            return True
+            
+        except PermissionError:
+            self.status_message = f"Error: Permission denied saving {filename}"
+            # Clean up temp file if it exists
+            if 'temp_filename' in locals() and os.path.exists(temp_filename):
+                try:
+                    os.remove(temp_filename)
+                except:
+                    pass
+            return False
+        except OSError as e:
+            if e.errno == errno.ENOSPC:  # No space left on device
+                self.status_message = f"Error: No space left on device"
+            else:
+                self.status_message = f"Error: Cannot save to {filename}"
+            # Clean up temp file if it exists
+            if 'temp_filename' in locals() and os.path.exists(temp_filename):
+                try:
+                    os.remove(temp_filename)
+                except:
+                    pass
+            return False
+        except Exception as e:
+            self.status_message = f"Error: Cannot save to {filename}"
+            # Clean up temp file if it exists
+            if 'temp_filename' in locals() and os.path.exists(temp_filename):
+                try:
+                    os.remove(temp_filename)
+                except:
+                    pass
+            return False
+    
+    def _handle_save(self):
+        """Handle Ctrl-S save command."""
+        if self.filename:
+            # Save to existing file
+            if self.save_file(self.filename):
+                self.status_message = f"Saved to {self.filename}"
+        else:
+            # Need to prompt for filename
+            self.prompt_mode = 'save_filename'
+            self.prompt_input = ""
+    
+    def _handle_filename_prompt(self, key):
+        """Handle keypress during filename prompt."""
+        if key == '\x1b' or key == '\x07':  # ESC or Ctrl-G
+            # Cancel prompt
+            self.prompt_mode = None
+            self.prompt_input = ""
+        elif key.code == self.terminal.term.KEY_ENTER:
+            # Save with entered filename
+            if self.prompt_input:
+                if self.save_file(self.prompt_input):
+                    self.status_message = f"Saved to {self.prompt_input}"
+                    # If we were saving before quit, quit now
+                    if self.prompt_mode == 'save_filename_quit':
+                        self.running = False
+                self.prompt_mode = None
+                self.prompt_input = ""
+        elif key.code == self.terminal.term.KEY_BACKSPACE or key.code == 263:
+            # Delete character from prompt
+            if self.prompt_input:
+                self.prompt_input = self.prompt_input[:-1]
+        elif not key.is_sequence:
+            # Add character to prompt
+            char = str(key)
+            if ord(char) >= 32:
+                self.prompt_input += char
+    
+    def _handle_quit_confirm(self, key):
+        """Handle keypress during quit confirmation."""
+        char = str(key).lower()
+        if char == 'y':
+            # Save and quit
+            if self.filename:
+                self.save_file(self.filename)
+                self.running = False
+            else:
+                # Need filename first
+                self.prompt_mode = 'save_filename_quit'
+                self.prompt_input = ""
+        elif char == 'n':
+            # Quit without saving
+            self.running = False
+        else:
+            # Cancel quit
+            self.prompt_mode = None

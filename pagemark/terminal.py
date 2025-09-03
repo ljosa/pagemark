@@ -31,7 +31,7 @@ class TerminalInterface:
         print(self.term.clear)
         
     def draw_lines(self, lines: list[str], cursor_y: int, cursor_x: int, 
-                   left_margin: int = 0, view_width: int = 65):
+                   left_margin: int = 0, view_width: int = 65, status_override: str = None):
         """Draw text lines and position cursor with optional left margin.
         
         Args:
@@ -40,6 +40,7 @@ class TerminalInterface:
             cursor_x: Cursor column position (0-based)
             left_margin: Number of spaces to indent from left
             view_width: Width of the view area
+            status_override: Custom status message to display instead of default
         """
         # Clear screen first
         print(self.term.home + self.term.clear, end='')
@@ -53,12 +54,21 @@ class TerminalInterface:
             print(display_line, end='')
             
         # Draw status line at bottom
-        status = f" Line {cursor_y + 1}, Col {cursor_x + 1} | Ctrl-Q to quit "
+        if status_override:
+            status = status_override
+        else:
+            status = f" Line {cursor_y + 1}, Col {cursor_x + 1} | Ctrl-Q to quit "
         print(self.term.move(self.term.height - 1, 0), end='')
         print(self.term.reverse + status.ljust(self.term.width) + self.term.normal, end='')
         
-        # Position cursor (adjust for margin)
-        print(self.term.move(cursor_y, cursor_x + left_margin) + self.term.normal_cursor, end='', flush=True)
+        # Position cursor (adjust for margin or for prompt input)
+        if status_override and (": " in status_override):
+            # Position cursor at end of current input
+            cursor_pos = len(status_override)
+            print(self.term.move(self.term.height - 1, cursor_pos) + self.term.normal_cursor, end='', flush=True)
+        else:
+            # Normal cursor positioning in text
+            print(self.term.move(cursor_y, cursor_x + left_margin) + self.term.normal_cursor, end='', flush=True)
     
     def draw_error_message(self, message1: str, message2: str = ""):
         """Draw an error message in the center of the screen.

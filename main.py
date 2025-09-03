@@ -5,11 +5,12 @@ Usage:
     python main.py [filename]
     
 Controls:
-    Arrow keys: Navigate cursor
-    Ctrl-Q: Quit
+    Arrow keys: Navigate cursor (maintains column position)
+    Ctrl-S: Save file
+    Ctrl-Q: Quit (prompts to save if modified)
     Type to insert text
     Backspace: Delete character
-    Enter: New line
+    Enter: New paragraph
 """
 
 import sys
