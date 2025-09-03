@@ -141,3 +141,40 @@ class TextModel:
             self.cursor_position.character_index = len(self.paragraphs[self.cursor_position.paragraph_index])
         
         self.view.render()
+    
+    def backward_kill_word(self):
+        """Delete from cursor back to beginning of previous word (Emacs-style)."""
+        para = self.paragraphs[self.cursor_position.paragraph_index]
+        pos = self.cursor_position.character_index
+        
+        if pos > 0:
+            original_pos = pos
+            # Move back one position to start
+            pos -= 1
+            
+            # Skip whitespace backwards
+            while pos > 0 and para[pos].isspace():
+                pos -= 1
+            
+            # Skip word characters backwards
+            while pos > 0 and not para[pos - 1].isspace():
+                pos -= 1
+            
+            # Delete from pos to original position
+            self.paragraphs[self.cursor_position.paragraph_index] = para[:pos] + para[original_pos:]
+            self.cursor_position.character_index = pos
+        elif self.cursor_position.paragraph_index > 0:
+            # At start of paragraph, join with previous paragraph
+            prev_idx = self.cursor_position.paragraph_index - 1
+            prev_para = self.paragraphs[prev_idx]
+            curr_para = self.paragraphs[self.cursor_position.paragraph_index]
+            
+            # Combine paragraphs
+            self.paragraphs[prev_idx] = prev_para + curr_para
+            del self.paragraphs[self.cursor_position.paragraph_index]
+            
+            # Move cursor to join point
+            self.cursor_position.paragraph_index = prev_idx
+            self.cursor_position.character_index = len(prev_para)
+        
+        self.view.render()

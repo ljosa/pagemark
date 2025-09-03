@@ -214,6 +214,10 @@ class Editor:
             elif str(key) == '\x1b[1;3C' or str(key) == '\x1bf':  # Alt-right  
                 self.model.right_word()
                 self.view.update_desired_x()
+            elif str(key) == '\x1b\x7f' or str(key) == '\x1b\x08':  # Alt-backspace
+                self.model.backward_kill_word()
+                self.modified = True
+                self.view.update_desired_x()
             elif key.code == self.terminal.term.KEY_LEFT:
                 self.model.left_char()
                 self.view.update_desired_x()  # Reset desired X on horizontal movement
