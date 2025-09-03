@@ -1,10 +1,10 @@
 import pytest
-from pagemark import TextModel, TerminalView
+from pagemark import TextModel, TerminalTextView
 
 
 def test_render_two_paragraphs_overflow():
     """Test rendering two paragraphs that exceed view rows."""
-    v = TerminalView()
+    v = TerminalTextView()
     v.num_rows = 5  # Small view height
     v.num_columns = 30
 
@@ -39,7 +39,7 @@ def test_render_two_paragraphs_overflow():
 
 def test_render_many_short_paragraphs_overflow():
     """Test rendering many single-line paragraphs exceeding view rows."""
-    v = TerminalView()
+    v = TerminalTextView()
     v.num_rows = 4
     v.num_columns = 40
 
@@ -69,7 +69,7 @@ def test_render_many_short_paragraphs_overflow():
 
 def test_render_long_first_paragraph_overflow():
     """Test when first paragraph alone exceeds view rows."""
-    v = TerminalView()
+    v = TerminalTextView()
     v.num_rows = 3
     v.num_columns = 20
 
@@ -100,7 +100,7 @@ def test_render_long_first_paragraph_overflow():
 
 def test_render_mixed_paragraph_lengths_overflow():
     """Test rendering mix of short and long paragraphs exceeding view."""
-    v = TerminalView()
+    v = TerminalTextView()
     v.num_rows = 6
     v.num_columns = 25
 

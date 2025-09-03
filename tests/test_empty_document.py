@@ -1,17 +1,17 @@
 import pytest
-from pagemark import TextModel, TerminalView
+from pagemark import TextModel, TerminalTextView
 
 
 def test_render_empty_document():
     """Test rendering an empty document."""
-    v = TerminalView()
+    v = TerminalTextView()
     v.num_rows = 10
     v.num_columns = 80
-    
+
     m = TextModel(v, paragraphs=[""])
-    
+
     v.render()
-    
+
     # These assertions verify the render works correctly for an empty document
     assert len(v.lines) == 1
     assert v.lines[0] == ""

@@ -39,13 +39,14 @@ class TextView(ABC):
 
 class TextModel:
     paragraphs: list[str]
-    cursor_position: CursorPosition = CursorPosition()
+    cursor_position: CursorPosition
     view: TextView
 
     def __init__(self, view: TextView, paragraphs=[""]):
         self.view = view
         self.view._model = self
         self.paragraphs = paragraphs
+        self.cursor_position = CursorPosition()
 
     def insert_text(self, text: str, position: CursorPosition | None = None):
         if position is None:
@@ -73,3 +74,19 @@ class TextModel:
             self.view.end_paragraph_index += len(paragraphs) - 1
         elif in_view:
             self.view.render()
+
+    def right_char(self):
+        if self.cursor_position.character_index < len(self.paragraphs[self.cursor_position.paragraph_index]):
+            self.cursor_position.character_index += 1
+        elif self.cursor_position.paragraph_index + 1 < len(self.paragraphs):
+            self.cursor_position.paragraph_index += 1
+            self.cursor_position.character_index = 0
+        self.view.render()
+
+    def left_char(self):
+        if self.cursor_position.character_index > 0:
+            self.cursor_position.character_index -= 1
+        elif self.cursor_position.paragraph_index > 0:
+            self.cursor_position.paragraph_index -= 1
+            self.cursor_position.character_index = len(self.paragraphs[self.cursor_position.paragraph_index])
+        self.view.render()

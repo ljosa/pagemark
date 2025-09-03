@@ -62,7 +62,7 @@ def render_paragraph(paragraph: str, num_columns: int) -> tuple[list[str], list[
     return (lines, cumulative_counts)
 
 
-class TerminalView(TextView):
+class TerminalTextView(TextView):
     num_rows: int
     num_columns: int
     first_paragraph_line_offset: int = 0
