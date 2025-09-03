@@ -1,6 +1,20 @@
 from typing import override
 from .model import TextView, CursorPosition
 
+def _break_long_word(word: str, num_columns: int, lines: list[str], 
+                     cumulative_counts: list[int], char_count: int) -> tuple[str, int]:
+    """Break a word that's too long to fit on one line.
+    
+    Returns the remaining part of the word and updated char_count.
+    """
+    while len(word) >= num_columns:
+        lines.append(word[:num_columns])
+        char_count += num_columns
+        cumulative_counts.append(char_count)
+        word = word[num_columns:]
+    return word, char_count
+
+
 def render_paragraph(paragraph: str, num_columns: int) -> tuple[list[str], list[int]]:
     """Render into a list of lines, at most num_columns long, with word wrap.
 
@@ -22,11 +36,8 @@ def render_paragraph(paragraph: str, num_columns: int) -> tuple[list[str], list[
             # First word on the line
             if len(word) >= num_columns:
                 # Word is too long, break it
-                while len(word) >= num_columns:
-                    lines.append(word[:num_columns])
-                    char_count += num_columns
-                    cumulative_counts.append(char_count)
-                    word = word[num_columns:]
+                word, char_count = _break_long_word(word, num_columns, lines, 
+                                                   cumulative_counts, char_count)
             current_line = word
         else:
             # Check if word fits on current line
@@ -39,11 +50,8 @@ def render_paragraph(paragraph: str, num_columns: int) -> tuple[list[str], list[
                 cumulative_counts.append(char_count)
                 if len(word) >= num_columns:
                     # Word is too long, break it
-                    while len(word) >= num_columns:
-                        lines.append(word[:num_columns])
-                        char_count += num_columns
-                        cumulative_counts.append(char_count)
-                        word = word[num_columns:]
+                    word, char_count = _break_long_word(word, num_columns, lines,
+                                                       cumulative_counts, char_count)
                 current_line = word
 
     assert current_line is not None
@@ -63,12 +71,43 @@ class TerminalTextView(TextView):
     visual_cursor_x: int = 0  # Store visual horizontal position
     LINES_PER_PAGE: int = 54  # Standard lines per printed page
 
+    def _create_page_break_line(self, page_num: int) -> str:
+        """Create a centered page break line with page number."""
+        page_text = f" Page {page_num} "
+        padding = (self.num_columns - len(page_text)) // 2
+        return "─" * padding + page_text + "─" * (self.num_columns - padding - len(page_text))
+    
+    def _is_page_break_line(self, line: str) -> bool:
+        """Check if a line is a page break line."""
+        return "─" in line and "Page" in line
+    
+    def _should_add_page_break(self, doc_line: int) -> bool:
+        """Check if a page break should be added after the given document line."""
+        # First check is for lines at the end of first paragraph
+        if (doc_line + 1) % self.LINES_PER_PAGE == 0 and doc_line > 0:
+            return True
+        # Second check is for lines in remaining paragraphs
+        if doc_line % self.LINES_PER_PAGE == (self.LINES_PER_PAGE - 1) and doc_line >= (self.LINES_PER_PAGE - 1):
+            return True
+        return False
+    
+    def _calculate_page_number(self, doc_line: int) -> int:
+        """Calculate the page number for a page break after the given line."""
+        if (doc_line + 1) % self.LINES_PER_PAGE == 0:
+            return (doc_line + 1) // self.LINES_PER_PAGE + 1
+        else:
+            return (doc_line // self.LINES_PER_PAGE) + 2
+
+    def _get_paragraph_line_count(self, paragraph_index: int) -> int:
+        """Get the number of lines in a rendered paragraph."""
+        para_lines, _ = render_paragraph(self.model.paragraphs[paragraph_index], self.num_columns)
+        return len(para_lines)
+    
     def _get_document_line_number(self, paragraph_index: int, line_within_para: int) -> int:
         """Calculate the absolute document line number for a given paragraph and line within it."""
         doc_line = 0
         for i in range(paragraph_index):
-            para_lines, _ = render_paragraph(self.model.paragraphs[i], self.num_columns)
-            doc_line += len(para_lines)
+            doc_line += self._get_paragraph_line_count(i)
         doc_line += line_within_para
         return doc_line
 
@@ -91,18 +130,13 @@ class TerminalTextView(TextView):
         for i in range(lines_wanted):
             if len(self.lines) >= self.num_rows:
                 break
-            # Calculate the document line number for this line (1-based for page breaks)
             doc_line = doc_line_start + i
             # Add the actual content line
             self.lines.append(para_lines[self.first_paragraph_line_offset + i])
-            # Check if we need a page break after this line
-            if (doc_line + 1) % self.LINES_PER_PAGE == 0 and doc_line > 0:
-                if len(self.lines) < self.num_rows:
-                    page_num = (doc_line + 1) // self.LINES_PER_PAGE + 1
-                    page_text = f" Page {page_num} "
-                    padding = (self.num_columns - len(page_text)) // 2
-                    page_break_line = "─" * padding + page_text + "─" * (self.num_columns - padding - len(page_text))
-                    self.lines.append(page_break_line)  # Page break line with page number
+            # Add page break if needed
+            if self._should_add_page_break(doc_line) and len(self.lines) < self.num_rows:
+                page_num = self._calculate_page_number(doc_line)
+                self.lines.append(self._create_page_break_line(page_num))
         
         end_position = CursorPosition(paragraph_index, para_counts[self.first_paragraph_line_offset + lines_wanted - 1] + 1)
         
@@ -117,20 +151,15 @@ class TerminalTextView(TextView):
             for i in range(len(para_lines)):
                 if len(self.lines) >= self.num_rows:
                     break
-                # Calculate the document line number for this line
                 doc_line = doc_line_start + doc_lines_added
                 # Add the actual content line
                 self.lines.append(para_lines[i])
                 doc_lines_added += 1
                 end_position = CursorPosition(paragraph_index, para_counts[i] + 1)
-                # Check if we need a page break after this line
-                if doc_line % self.LINES_PER_PAGE == (self.LINES_PER_PAGE - 1) and doc_line >= (self.LINES_PER_PAGE - 1):
-                    if len(self.lines) < self.num_rows:
-                        page_num = (doc_line // self.LINES_PER_PAGE) + 2  # +2 because we're at end of page
-                        page_text = f" Page {page_num} "
-                        padding = (self.num_columns - len(page_text)) // 2
-                        page_break_line = "─" * padding + page_text + "─" * (self.num_columns - padding - len(page_text))
-                        self.lines.append(page_break_line)  # Page break line with page number
+                # Add page break if needed
+                if self._should_add_page_break(doc_line) and len(self.lines) < self.num_rows:
+                    page_num = self._calculate_page_number(doc_line)
+                    self.lines.append(self._create_page_break_line(page_num))
         
         self.end_paragraph_index = paragraph_index + 1
 
@@ -159,8 +188,7 @@ class TerminalTextView(TextView):
         # Calculate the cursor's document line number
         cursor_doc_line = 0
         for i in range(cursor_para_idx):
-            para_lines, _ = render_paragraph(self.model.paragraphs[i], self.num_columns)
-            cursor_doc_line += len(para_lines)
+            cursor_doc_line += self._get_paragraph_line_count(i)
         
         # Find which line within the cursor paragraph the cursor is on
         _, para_counts = render_paragraph(self.model.paragraphs[cursor_para_idx], self.num_columns)
@@ -185,9 +213,9 @@ class TerminalTextView(TextView):
         elif self.visual_cursor_y >= len(self.lines):
             self.visual_cursor_y = len(self.lines) - 1
         
-        # Skip over page break lines (they contain "─" and "Page")
+        # Skip over page break lines
         while (self.visual_cursor_y < len(self.lines) and 
-               "─" in self.lines[self.visual_cursor_y] and "Page" in self.lines[self.visual_cursor_y]):
+               self._is_page_break_line(self.lines[self.visual_cursor_y])):
             self.visual_cursor_y += 1
         
         # Calculate visual cursor X position within the line
@@ -201,9 +229,9 @@ class TerminalTextView(TextView):
         if self.visual_cursor_x == self.num_columns:
             # Cursor wraps to start of next line
             self.visual_cursor_y += 1
-            # Skip page break if present (they contain "─" and "Page")
+            # Skip page break if present
             while (self.visual_cursor_y < len(self.lines) and 
-                   "─" in self.lines[self.visual_cursor_y] and "Page" in self.lines[self.visual_cursor_y]):
+                   self._is_page_break_line(self.lines[self.visual_cursor_y])):
                 self.visual_cursor_y += 1
             self.visual_cursor_x = 0
         elif self.visual_cursor_x < 0:

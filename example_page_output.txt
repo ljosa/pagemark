@@ -1,0 +1,17 @@
+Example of page breaks with centered page numbers (65-char width):
+
+Line 52: Content on page 1
+Line 53: More content on page 1  
+Line 54: Last line of page 1
+───────────────────────── Page 2 ─────────────────────────
+Line 55: First line of page 2
+Line 56: Content continues on page 2
+...
+Line 107: Near end of page 2
+Line 108: Last line of page 2
+───────────────────────── Page 3 ─────────────────────────
+Line 109: First line of page 3
+Line 110: Content on page 3
+
+The page numbers are perfectly centered within the 65-character width,
+with equal padding of dashes (─) on both sides.
