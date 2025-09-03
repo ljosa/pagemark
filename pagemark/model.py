@@ -178,3 +178,20 @@ class TextModel:
             self.cursor_position.character_index = len(prev_para)
         
         self.view.render()
+    
+    def delete_char(self):
+        """Delete character at cursor position (Emacs-style Ctrl-D)."""
+        para = self.paragraphs[self.cursor_position.paragraph_index]
+        pos = self.cursor_position.character_index
+        
+        if pos < len(para):
+            # Delete character at cursor
+            self.paragraphs[self.cursor_position.paragraph_index] = para[:pos] + para[pos+1:]
+        elif self.cursor_position.paragraph_index + 1 < len(self.paragraphs):
+            # At end of paragraph, join with next paragraph
+            next_para = self.paragraphs[self.cursor_position.paragraph_index + 1]
+            self.paragraphs[self.cursor_position.paragraph_index] = para + next_para
+            del self.paragraphs[self.cursor_position.paragraph_index + 1]
+        # else: at end of document, do nothing
+        
+        self.view.render()

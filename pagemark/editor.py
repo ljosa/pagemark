@@ -218,6 +218,10 @@ class Editor:
                 self.model.backward_kill_word()
                 self.modified = True
                 self.view.update_desired_x()
+            elif str(key) == '\x04':  # Ctrl-D (delete-char)
+                self.model.delete_char()
+                self.modified = True
+                self.view.update_desired_x()
             elif key.code == self.terminal.term.KEY_LEFT:
                 self.model.left_char()
                 self.view.update_desired_x()  # Reset desired X on horizontal movement
