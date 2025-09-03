@@ -10,6 +10,8 @@ import errno
 from .terminal import TerminalInterface
 from .model import TextModel
 from .view import TerminalTextView
+from .print_dialog import PrintDialog, PrintAction
+from .print_output import PrintOutput
 
 
 class Editor:
@@ -139,6 +141,8 @@ class Editor:
             status_override = f" File to save in: {self.prompt_input}"
         elif self.prompt_mode == 'quit_confirm':
             status_override = " Save file? (y, n) "
+        elif self.prompt_mode == 'pdf_filename':
+            status_override = f" Save PDF as: {self.prompt_input}"
         elif self.status_message:
             status_override = f" {self.status_message}"
 
@@ -175,6 +179,9 @@ class Editor:
         elif self.prompt_mode == 'quit_confirm':
             self._handle_quit_confirm(key)
             return
+        elif self.prompt_mode == 'pdf_filename':
+            self._handle_pdf_filename_prompt(key)
+            return
 
         # Check for quit command (Ctrl-Q)
         if not key.is_sequence and str(key) == '\x11':  # Ctrl-Q
@@ -187,6 +194,11 @@ class Editor:
         # Check for save command (Ctrl-S)
         if not key.is_sequence and str(key) == '\x13':  # Ctrl-S
             self._handle_save()
+            return
+        
+        # Check for print command (Ctrl-P)
+        if not key.is_sequence and str(key) == '\x10':  # Ctrl-P
+            self._handle_print()
             return
 
         # Don't process other keys if in error mode
@@ -350,6 +362,31 @@ class Editor:
             # Cancel prompt
             self.prompt_mode = None
             self.prompt_input = ""
+    
+    def _handle_pdf_filename_prompt(self, key):
+        """Handle keypress during PDF filename prompt."""
+        if key == '\x1b' or key == '\x07':  # ESC or Ctrl-G
+            # Cancel prompt
+            self.prompt_mode = None
+            self.prompt_input = ""
+            self._pending_print_pages = None
+            self.status_message = "PDF save cancelled"
+        elif key.code == self.terminal.term.KEY_ENTER:
+            # Save with entered filename
+            if self.prompt_input and hasattr(self, '_pending_print_pages'):
+                self._save_to_pdf(self._pending_print_pages, self.prompt_input)
+                self._pending_print_pages = None
+            self.prompt_mode = None
+            self.prompt_input = ""
+        elif key.code == self.terminal.term.KEY_BACKSPACE or key.code == 263:
+            # Delete character from prompt
+            if self.prompt_input:
+                self.prompt_input = self.prompt_input[:-1]
+        elif not key.is_sequence:
+            # Add character to prompt
+            char = str(key)
+            if ord(char) >= 32:
+                self.prompt_input += char
         elif key.code == self.terminal.term.KEY_ENTER:
             # Save with entered filename
             if self.prompt_input:
@@ -388,3 +425,80 @@ class Editor:
         else:
             # Cancel quit
             self.prompt_mode = None
+    
+    def _handle_print(self):
+        """Handle Ctrl-P print command."""
+        # Clear screen for dialog
+        self.terminal.clear_screen()
+        
+        # Show print dialog
+        dialog = PrintDialog(self.model, self.terminal)
+        result = dialog.show()
+        
+        # Process the result
+        if result.action == PrintAction.CANCEL:
+            # User cancelled, just return to editor
+            self.status_message = "Print cancelled"
+        elif result.action == PrintAction.PRINT:
+            # Print to printer
+            self._print_to_printer(dialog.pages, result.printer_name, result.double_sided)
+        elif result.action == PrintAction.SAVE_PDF:
+            # Save to PDF - prompt for filename
+            self.prompt_mode = 'pdf_filename'
+            self.prompt_input = result.pdf_filename
+            # Store pages for later use
+            self._pending_print_pages = dialog.pages
+        
+        # Force redraw after returning from dialog
+        if hasattr(self, '_rendered_once'):
+            delattr(self, '_rendered_once')
+    
+    def _print_to_printer(self, pages, printer_name, double_sided):
+        """Submit print job to printer.
+        
+        Args:
+            pages: Formatted pages to print.
+            printer_name: Name of the printer.
+            double_sided: Whether to print double-sided.
+        """
+        # Show progress message
+        self.status_message = f"Printing to {printer_name}..."
+        self._draw()
+        
+        # Perform the print operation
+        output = PrintOutput()
+        success, error = output.print_to_printer(pages, printer_name, double_sided)
+        
+        if success:
+            self.status_message = f"✓ Successfully printed to {printer_name}"
+        else:
+            self.status_message = f"✗ Print failed: {error}"
+    
+    def _save_to_pdf(self, pages, filename):
+        """Save pages to PDF file.
+        
+        Args:
+            pages: Formatted pages to save.
+            filename: Output PDF filename.
+        """
+        # Show progress message
+        self.status_message = f"Saving PDF to {filename}..."
+        self._draw()
+        
+        # Validate path first
+        output = PrintOutput()
+        valid, error = output.validate_output_path(filename)
+        if not valid:
+            self.status_message = f"✗ {error}"
+            return
+        
+        # Perform the save operation
+        success, message = output.save_to_pdf(pages, filename)
+        
+        if success:
+            if message:  # Fallback to text file
+                self.status_message = f"✓ {message}"
+            else:
+                self.status_message = f"✓ Successfully saved PDF to {filename}"
+        else:
+            self.status_message = f"✗ {message}"
