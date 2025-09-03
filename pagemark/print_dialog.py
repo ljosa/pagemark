@@ -138,61 +138,41 @@ class PrintDialog:
         # Clear screen
         print(term.home + term.clear, end='')
         
-        # Calculate layout
-        dialog_width = 68
-        dialog_height = 40
-        left_margin = (term.width - dialog_width) // 2
-        top_margin = (term.height - dialog_height) // 2
+        # Calculate layout (wider to accommodate long printer names)
+        dialog_width = min(100, term.width - 4)  # Use more width if available
+        dialog_height = 38  # Slightly less height without borders
+        left_margin = max(2, (term.width - dialog_width) // 2)
+        top_margin = max(1, (term.height - dialog_height) // 2)
         
-        # Draw dialog border and title
-        self._draw_border(left_margin, top_margin, dialog_width, dialog_height)
+        # Draw title (no border)
+        self._draw_title(left_margin, top_margin, dialog_width)
         
         # Draw page preview on the left
-        preview_left = left_margin + 2
-        preview_top = top_margin + 3
+        preview_left = left_margin
+        preview_top = top_margin + 2  # After title
         self._draw_preview(preview_left, preview_top)
         
-        # Draw options on the right
-        options_left = preview_left + 47  # 43 chars + 4 spacing
-        options_top = top_margin + 3
-        self._draw_options(options_left, options_top)
+        # Draw options on the right with more space
+        options_left = preview_left + 48  # 45 chars for preview + 3 spacing
+        options_top = top_margin + 2
+        options_max_width = dialog_width - 48  # Remaining width for options
+        self._draw_options(options_left, options_top, options_max_width)
         
-        # Draw navigation help
-        help_top = top_margin + dialog_height - 2
-        help_text = "PgUp/PgDn: Navigate pages"
-        print(term.move(help_top, left_margin + 2) + help_text, end='', flush=True)
+        # Flush output
+        print('', end='', flush=True)
     
-    def _draw_border(self, left: int, top: int, width: int, height: int):
-        """Draw the dialog border and title."""
+    def _draw_title(self, left: int, top: int, width: int):
+        """Draw the dialog title without borders."""
         term = self.terminal.term
         
-        # Top border
-        print(term.move(top, left) + "┌" + "─" * (width - 2) + "┐", end='')
-        
-        # Title
+        # Center the title
         title = "Print Document"
         title_pos = left + (width - len(title)) // 2
-        print(term.move(top + 1, left) + "│" + " " * (width - 2) + "│", end='')
-        print(term.move(top + 1, title_pos) + title, end='')
-        
-        # Separator after title
-        print(term.move(top + 2, left) + "├" + "─" * (width - 2) + "┤", end='')
-        
-        # Side borders
-        for y in range(3, height - 1):
-            print(term.move(top + y, left) + "│", end='')
-            print(term.move(top + y, left + width - 1) + "│", end='')
-        
-        # Bottom border
-        print(term.move(top + height - 1, left) + "└" + "─" * (width - 2) + "┘", end='')
+        print(term.move(top, title_pos) + term.bold + title + term.normal, end='')
     
     def _draw_preview(self, left: int, top: int):
         """Draw the page preview."""
         term = self.terminal.term
-        
-        # Page indicator
-        page_text = f"Page Preview ({self.current_page + 1}/{len(self.pages)})"
-        print(term.move(top - 1, left) + page_text, end='')
         
         # Get preview with border
         preview_lines = self.preview.generate_preview_with_border(self.current_page)
@@ -200,9 +180,24 @@ class PrintDialog:
         # Draw preview
         for i, line in enumerate(preview_lines):
             print(term.move(top + i, left) + line, end='')
+        
+        # Draw page info and navigation help at bottom right of preview
+        page_text = f"Page {self.current_page + 1}/{len(self.pages)}"
+        nav_text = "PgUp/PgDn: Navigate"
+        
+        # Position at bottom right of preview box
+        info_y = top + len(preview_lines)
+        print(term.move(info_y, left) + page_text, end='')
+        print(term.move(info_y, left + 45 - len(nav_text)) + nav_text, end='')
     
-    def _draw_options(self, left: int, top: int):
-        """Draw the print options."""
+    def _draw_options(self, left: int, top: int, max_width: int):
+        """Draw the print options.
+        
+        Args:
+            left: Left position
+            top: Top position
+            max_width: Maximum width available for options
+        """
         term = self.terminal.term
         y = top
         
@@ -215,7 +210,9 @@ class PrintDialog:
                 marker = "[x] "
             else:
                 marker = "[ ] "
-            print(term.move(y, left) + marker + option, end='')
+            # Truncate option if it's too long
+            display_option = option[:max_width - 4] if len(option) > max_width - 4 else option
+            print(term.move(y, left) + marker + display_option, end='')
             y += 1
         
         y += 1
@@ -229,7 +226,8 @@ class PrintDialog:
             y += 2
         
         # Separator
-        print(term.move(y, left) + "─" * 15, end='')
+        sep_width = min(25, max_width)
+        print(term.move(y, left) + "─" * sep_width, end='')
         y += 2
         
         # Action buttons
