@@ -15,22 +15,19 @@ def render_paragraph(paragraph: str, num_columns: int) -> tuple[list[str], list[
     cumulative_counts = []
     char_count = 0
     words = paragraph.split(" ")
+    current_line = None
 
-    current_line = ""
     for word in words:
-        if not current_line:
+        if current_line is None:
             # First word on the line
-            if len(word) < num_columns:
-                current_line = word
-            else:
+            if len(word) >= num_columns:
                 # Word is too long, break it
                 while len(word) >= num_columns:
                     lines.append(word[:num_columns])
                     char_count += num_columns
                     cumulative_counts.append(char_count)
                     word = word[num_columns:]
-                if word:
-                    current_line = word
+            current_line = word
         else:
             # Check if word fits on current line
             if len(current_line) + 1 + len(word) < num_columns:
@@ -40,24 +37,19 @@ def render_paragraph(paragraph: str, num_columns: int) -> tuple[list[str], list[
                 lines.append(current_line)
                 char_count += len(current_line) + 1  # +1 for the space that would have been added
                 cumulative_counts.append(char_count)
-                if len(word) < num_columns:
-                    current_line = word
-                else:
+                if len(word) >= num_columns:
                     # Word is too long, break it
                     while len(word) >= num_columns:
                         lines.append(word[:num_columns])
                         char_count += num_columns
                         cumulative_counts.append(char_count)
                         word = word[num_columns:]
-                    if word:
-                        current_line = word
-                    else:
-                        current_line = ""
+                current_line = word
 
-    if current_line:
-        lines.append(current_line)
-        char_count += len(current_line)
-        cumulative_counts.append(char_count)
+    assert current_line is not None
+    lines.append(current_line)
+    char_count += len(current_line)
+    cumulative_counts.append(char_count)
 
     return (lines, cumulative_counts)
 
@@ -97,7 +89,7 @@ class TerminalTextView(TextView):
             self.center_view_on_cursor()
 
         self._set_visual_cursor_position()
-        
+
         # Add empty line if cursor is at the start of a new visual line
         # This happens when text exactly fills a line and cursor is after it
         if self.visual_cursor_y == len(self.lines) and len(self.lines) < self.num_rows:
@@ -105,34 +97,58 @@ class TerminalTextView(TextView):
 
     def _set_visual_cursor_position(self):
         # Set visual cursor position
-        _, para_counts = render_paragraph(self.model.paragraphs[self.model.cursor_position.paragraph_index], self.num_columns)
-        if self.model.cursor_position.paragraph_index == self.start_paragraph_index:
-            line_index = 0
-            while (line_index < len(para_counts) and
-                   para_counts[line_index] < self.model.cursor_position.character_index):
-                line_index += 1
-            self.visual_cursor_y = line_index - self.first_paragraph_line_offset
-            if self.visual_cursor_y < 0:
-                self.visual_cursor_y = 0
-            elif self.visual_cursor_y >= self.num_rows:
-                self.visual_cursor_y = self.num_rows - 1
-            if line_index == 0:
-                self.visual_cursor_x = self.model.cursor_position.character_index
-            else:
-                # Calculate position within the current line
-                # No -1 needed here, as the space is already counted in para_counts
-                self.visual_cursor_x = self.model.cursor_position.character_index - para_counts[line_index - 1]
+        cursor_para_idx = self.model.cursor_position.paragraph_index
 
-            # Handle cursor at end of line that exactly fills width
-            if self.visual_cursor_x == self.num_columns:
-                # Cursor wraps to start of next line
-                self.visual_cursor_y += 1
-                self.visual_cursor_x = 0
-            elif self.visual_cursor_x < 0:
-                self.visual_cursor_x = 0
-            elif self.visual_cursor_x > self.num_columns:
-                # This shouldn't happen with proper wrapping
-                self.visual_cursor_x = self.num_columns - 1
+        # Calculate visual line offset for all paragraphs before cursor paragraph
+        visual_line_offset = 0
+        for para_idx in range(self.start_paragraph_index, cursor_para_idx):
+            para_lines, _ = render_paragraph(self.model.paragraphs[para_idx], self.num_columns)
+            if para_idx == self.start_paragraph_index:
+                # First paragraph may be partially shown
+                visual_line_offset += len(para_lines) - self.first_paragraph_line_offset
+            else:
+                visual_line_offset += len(para_lines)
+
+        # Now handle the cursor paragraph
+        _, para_counts = render_paragraph(self.model.paragraphs[cursor_para_idx], self.num_columns)
+
+        # Find which line within the paragraph the cursor is on
+        line_index = 0
+        while (line_index < len(para_counts) and
+               para_counts[line_index] < self.model.cursor_position.character_index):
+            line_index += 1
+
+        # Calculate visual cursor Y position
+        if cursor_para_idx == self.start_paragraph_index:
+            # Account for first paragraph offset
+            self.visual_cursor_y = visual_line_offset + line_index - self.first_paragraph_line_offset
+        else:
+            self.visual_cursor_y = visual_line_offset + line_index
+
+        # Clamp to visible screen area
+        if self.visual_cursor_y < 0:
+            self.visual_cursor_y = 0
+        elif self.visual_cursor_y >= self.num_rows:
+            self.visual_cursor_y = self.num_rows - 1
+
+        # Calculate visual cursor X position within the line
+        if line_index == 0:
+            self.visual_cursor_x = self.model.cursor_position.character_index
+        else:
+            # Calculate position within the current line
+            # No -1 needed here, as the space is already counted in para_counts
+            self.visual_cursor_x = self.model.cursor_position.character_index - para_counts[line_index - 1]
+
+        # Handle cursor at end of line that exactly fills width
+        if self.visual_cursor_x == self.num_columns:
+            # Cursor wraps to start of next line
+            self.visual_cursor_y += 1
+            self.visual_cursor_x = 0
+        elif self.visual_cursor_x < 0:
+            self.visual_cursor_x = 0
+        elif self.visual_cursor_x > self.num_columns:
+            # This shouldn't happen with proper wrapping
+            self.visual_cursor_x = self.num_columns - 1
 
     def center_view_on_cursor(self):
         _, para_counts = render_paragraph(self.model.paragraphs[self.model.cursor_position.paragraph_index], self.num_columns)

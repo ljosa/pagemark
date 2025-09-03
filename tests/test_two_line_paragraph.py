@@ -79,10 +79,12 @@ def test_render_paragraph_exact_width():
 
     v.render()
 
-    # Should be on two lines - each word on its own line
-    assert len(v.lines) == 2
+    # Should be on four lines due to exact fits
+    assert len(v.lines) == 4
     assert v.lines[0] == "1234567890"
-    assert v.lines[1] == "abcdefghij"
+    assert v.lines[1] == ""
+    assert v.lines[2] == "abcdefghij"
+    assert v.lines[3] == ""
 
     # Cursor checks
     assert m.cursor_position.paragraph_index == 0
