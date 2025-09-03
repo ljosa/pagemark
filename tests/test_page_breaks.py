@@ -28,8 +28,8 @@ def test_page_break_visual_separation():
     v.num_rows = 60
     v.num_columns = 65
     
-    # Create exactly 54 lines
-    paragraphs = ["Line " + str(i) for i in range(1, 55)]
+    # Create 55 lines to trigger page break after line 54
+    paragraphs = ["Line " + str(i) for i in range(1, 56)]
     m = TextModel(v, paragraphs=paragraphs)
     
     v.render()

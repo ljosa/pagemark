@@ -140,18 +140,27 @@ class Editor:
         if key.is_sequence:
             if key.code == self.terminal.term.KEY_LEFT:
                 self.model.left_char()
+                self.view.update_desired_x()  # Reset desired X on horizontal movement
             elif key.code == self.terminal.term.KEY_RIGHT:
                 self.model.right_char()
+                self.view.update_desired_x()  # Reset desired X on horizontal movement
+            elif key.code == self.terminal.term.KEY_UP:
+                self.view.move_cursor_up()
+            elif key.code == self.terminal.term.KEY_DOWN:
+                self.view.move_cursor_down()
             elif key.code == self.terminal.term.KEY_BACKSPACE or key.code == 263:
                 self._handle_backspace()
+                self.view.update_desired_x()  # Reset desired X after editing
             elif key.code == self.terminal.term.KEY_ENTER:
                 self.model.insert_text('\n')
+                self.view.update_desired_x()  # Reset desired X after editing
         else:
             # Regular character - insert it
             char = str(key)
             # Filter out control characters except tab
             if ord(char) >= 32 or char == '\t':
                 self.model.insert_text(char)
+                self.view.update_desired_x()  # Reset desired X after typing
 
     def _handle_backspace(self):
         """Handle backspace key - delete character before cursor."""

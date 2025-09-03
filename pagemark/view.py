@@ -69,6 +69,7 @@ class TerminalTextView(TextView):
     lines: list[str] = []
     visual_cursor_y: int = 0
     visual_cursor_x: int = 0  # Store visual horizontal position
+    desired_x: int = 0  # Desired X position for up/down navigation
     LINES_PER_PAGE: int = 54  # Standard lines per printed page
 
     def _create_page_break_line(self, page_num: int) -> str:
@@ -133,8 +134,10 @@ class TerminalTextView(TextView):
             doc_line = doc_line_start + i
             # Add the actual content line
             self.lines.append(para_lines[self.first_paragraph_line_offset + i])
-            # Add page break if needed
-            if self._should_add_page_break(doc_line) and len(self.lines) < self.num_rows:
+            # Check if there's more content after this line
+            has_more_content = (i < lines_wanted - 1) or (paragraph_index + 1 < len(self.model.paragraphs))
+            # Add page break if needed and there's more content
+            if self._should_add_page_break(doc_line) and has_more_content and len(self.lines) < self.num_rows:
                 page_num = self._calculate_page_number(doc_line)
                 self.lines.append(self._create_page_break_line(page_num))
         
@@ -156,8 +159,10 @@ class TerminalTextView(TextView):
                 self.lines.append(para_lines[i])
                 doc_lines_added += 1
                 end_position = CursorPosition(paragraph_index, para_counts[i] + 1)
-                # Add page break if needed
-                if self._should_add_page_break(doc_line) and len(self.lines) < self.num_rows:
+                # Check if there's more content after this line
+                has_more_content = (i < len(para_lines) - 1) or (paragraph_index + 1 < len(self.model.paragraphs))
+                # Add page break if needed and there's more content
+                if self._should_add_page_break(doc_line) and has_more_content and len(self.lines) < self.num_rows:
                     page_num = self._calculate_page_number(doc_line)
                     self.lines.append(self._create_page_break_line(page_num))
         
@@ -265,3 +270,178 @@ class TerminalTextView(TextView):
             if char_index < count:
                 return i
         return len(cumulative_counts) - 1
+    
+    def move_cursor_up(self):
+        """Move cursor up one visual line, maintaining desired X position."""
+        # Find current visual line (skip page breaks going up)
+        target_y = self.visual_cursor_y - 1
+        while target_y >= 0 and target_y < len(self.lines) and self._is_page_break_line(self.lines[target_y]):
+            target_y -= 1
+        
+        if target_y < 0:
+            # Need to move up beyond current view
+            if self.start_paragraph_index == 0 and self.first_paragraph_line_offset == 0:
+                # At document start, do nothing
+                return
+            # Move cursor up one line in the document
+            self._move_cursor_up_in_document()
+            return
+        
+        # Move cursor to the target line at desired X position
+        self._move_cursor_to_visual_line(target_y, self.desired_x)
+    
+    def move_cursor_down(self):
+        """Move cursor down one visual line, maintaining desired X position."""
+        # Find next visual line (skip page breaks going down)
+        target_y = self.visual_cursor_y + 1
+        while target_y < len(self.lines) and self._is_page_break_line(self.lines[target_y]):
+            target_y += 1
+        
+        if target_y >= len(self.lines):
+            # Need to move down beyond current view
+            if self.end_paragraph_index >= len(self.model.paragraphs):
+                # At document end, do nothing
+                return
+            # Move cursor down one line in the document
+            self._move_cursor_down_in_document()
+            return
+        
+        # Move cursor to the target line at desired X position
+        self._move_cursor_to_visual_line(target_y, self.desired_x)
+    
+    def _move_cursor_to_visual_line(self, visual_y: int, desired_x: int):
+        """Move cursor to a specific visual line at the desired X position."""
+        # Map visual Y to document position
+        doc_line = self._visual_y_to_document_line(visual_y)
+        if doc_line is None:
+            return
+        
+        # Find which paragraph this line belongs to
+        paragraph_index, line_within_para = self._document_line_to_paragraph(doc_line)
+        if paragraph_index >= len(self.model.paragraphs):
+            return
+        
+        # Get the rendered lines for this paragraph
+        para_lines, para_counts = render_paragraph(self.model.paragraphs[paragraph_index], self.num_columns)
+        
+        # Calculate character index for the desired X position on this line
+        if line_within_para >= len(para_lines):
+            return
+        
+        line_text = para_lines[line_within_para]
+        actual_x = min(desired_x, len(line_text))
+        
+        # Calculate character index in the paragraph
+        if line_within_para == 0:
+            char_index = actual_x
+        else:
+            char_index = para_counts[line_within_para - 1] + actual_x
+        
+        # Update cursor position
+        self.model.cursor_position.paragraph_index = paragraph_index
+        self.model.cursor_position.character_index = char_index
+        
+        # Re-render to update visual cursor position
+        self.render()
+    
+    def _visual_y_to_document_line(self, visual_y: int) -> int | None:
+        """Convert visual Y position to document line number."""
+        if visual_y < 0 or visual_y >= len(self.lines):
+            return None
+        
+        # Count non-page-break lines from start of view
+        doc_line_start = self._get_document_line_number(self.start_paragraph_index, self.first_paragraph_line_offset)
+        doc_line = doc_line_start
+        
+        for i in range(visual_y + 1):
+            if i < len(self.lines) and not self._is_page_break_line(self.lines[i]):
+                if i < visual_y:
+                    doc_line += 1
+        
+        return doc_line
+    
+    def _document_line_to_paragraph(self, doc_line: int) -> tuple[int, int]:
+        """Convert document line number to paragraph index and line within paragraph."""
+        current_line = 0
+        for para_idx in range(len(self.model.paragraphs)):
+            para_line_count = self._get_paragraph_line_count(para_idx)
+            if current_line + para_line_count > doc_line:
+                return (para_idx, doc_line - current_line)
+            current_line += para_line_count
+        # Line is beyond document
+        return (len(self.model.paragraphs) - 1, 0)
+    
+    def _move_cursor_up_in_document(self):
+        """Move cursor up one line in the document and center view."""
+        # Get current document line
+        doc_line = self._visual_y_to_document_line(0) - 1  # Line above current view
+        if doc_line < 0:
+            return
+        
+        # Convert to paragraph and line within paragraph
+        paragraph_index, line_within_para = self._document_line_to_paragraph(doc_line)
+        
+        # Get the rendered lines for this paragraph
+        para_lines, para_counts = render_paragraph(self.model.paragraphs[paragraph_index], self.num_columns)
+        
+        # Calculate character index for the desired X position on this line
+        if line_within_para >= len(para_lines):
+            return
+        
+        line_text = para_lines[line_within_para]
+        actual_x = min(self.desired_x, len(line_text))
+        
+        # Calculate character index in the paragraph
+        if line_within_para == 0:
+            char_index = actual_x
+        else:
+            char_index = para_counts[line_within_para - 1] + actual_x
+        
+        # Update cursor position
+        self.model.cursor_position.paragraph_index = paragraph_index
+        self.model.cursor_position.character_index = char_index
+        
+        # Center view on the cursor
+        self.center_view_on_cursor()
+        self.render()
+    
+    def _move_cursor_down_in_document(self):
+        """Move cursor down one line in the document and center view."""
+        # Get current document line  
+        last_visual_y = len(self.lines) - 1
+        while last_visual_y >= 0 and self._is_page_break_line(self.lines[last_visual_y]):
+            last_visual_y -= 1
+        doc_line = self._visual_y_to_document_line(last_visual_y) + 1  # Line below current view
+        
+        # Convert to paragraph and line within paragraph
+        paragraph_index, line_within_para = self._document_line_to_paragraph(doc_line)
+        if paragraph_index >= len(self.model.paragraphs):
+            return
+        
+        # Get the rendered lines for this paragraph
+        para_lines, para_counts = render_paragraph(self.model.paragraphs[paragraph_index], self.num_columns)
+        
+        # Calculate character index for the desired X position on this line
+        if line_within_para >= len(para_lines):
+            return
+        
+        line_text = para_lines[line_within_para]
+        actual_x = min(self.desired_x, len(line_text))
+        
+        # Calculate character index in the paragraph
+        if line_within_para == 0:
+            char_index = actual_x
+        else:
+            char_index = para_counts[line_within_para - 1] + actual_x
+        
+        # Update cursor position
+        self.model.cursor_position.paragraph_index = paragraph_index
+        self.model.cursor_position.character_index = char_index
+        
+        # Center view on the cursor
+        self.center_view_on_cursor()
+        self.render()
+    
+    def update_desired_x(self):
+        """Update the desired X position based on current cursor position."""
+        self.desired_x = self.visual_cursor_x
