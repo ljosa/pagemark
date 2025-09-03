@@ -37,8 +37,8 @@ class Editor:
         self.status_message = None
         self.prompt_mode = None  # None, 'save_filename', 'save_filename_quit', or 'quit_confirm'
         self.prompt_input = ""
-        # Track ESC key for Alt combinations
-        self.last_key_was_esc = False
+        # Buffer for building escape sequences
+        self.escape_buffer = ""
 
     def _handle_resize(self, signum, frame):
         """Handle terminal resize signal."""
@@ -209,32 +209,52 @@ class Editor:
 
         key_str = str(key)
         
-        # Handle ESC key - could be Alt combo starting
-        if key_str == '\x1b':
-            self.last_key_was_esc = True
-            return
-        
-        # Handle key after ESC (Alt combinations)
-        if self.last_key_was_esc:
-            self.last_key_was_esc = False
+        # Build escape sequences
+        if self.escape_buffer or key_str == '\x1b':
+            # Start or continue building escape sequence
+            self.escape_buffer += key_str
             
-            # Alt+left (ESC followed by left arrow)
-            if key.code == self.terminal.term.KEY_LEFT or key_str in ('[D', 'OD', 'b'):
+            # Check if we have a complete Alt sequence
+            if self.escape_buffer in ('\x1b[1;3D', '\x1bb', '\x1b[D', '\x1bOD'):
+                # Alt-left
                 self.model.left_word()
                 self.view.update_desired_x()
+                self.escape_buffer = ""
                 return
-                
-            # Alt+right (ESC followed by right arrow)
-            if key.code == self.terminal.term.KEY_RIGHT or key_str in ('[C', 'OC', 'f'):
+            elif self.escape_buffer in ('\x1b[1;3C', '\x1bf', '\x1b[C', '\x1bOC'):
+                # Alt-right  
                 self.model.right_word()
                 self.view.update_desired_x()
+                self.escape_buffer = ""
                 return
-                
-            # Alt+backspace (ESC followed by backspace/delete)
-            if key.code in (self.terminal.term.KEY_BACKSPACE, 263) or key_str in ('\x7f', '\x08'):
+            elif self.escape_buffer in ('\x1b\x7f', '\x1b\x08'):
+                # Alt-backspace
                 self.model.backward_kill_word()
                 self.modified = True
                 self.view.update_desired_x()
+                self.escape_buffer = ""
+                return
+            
+            # Check if this could still become a valid sequence
+            potential_sequences = [
+                '\x1b[1;3D', '\x1bb', '\x1b[D', '\x1bOD',  # Alt-left
+                '\x1b[1;3C', '\x1bf', '\x1b[C', '\x1bOC',  # Alt-right
+                '\x1b\x7f', '\x1b\x08'  # Alt-backspace
+            ]
+            
+            # If buffer could be start of a valid sequence, keep accumulating
+            for seq in potential_sequences:
+                if seq.startswith(self.escape_buffer):
+                    return  # Keep accumulating
+                    
+            # Not a valid sequence - clear buffer and handle as regular ESC
+            if self.escape_buffer == '\x1b':
+                # Just ESC by itself - clear and continue processing
+                self.escape_buffer = ""
+                return
+            else:
+                # Invalid escape sequence - clear buffer
+                self.escape_buffer = ""
                 return
         
         # Handle Ctrl shortcuts first (not sequences)
@@ -257,25 +277,6 @@ class Editor:
             self.view.update_desired_x()
             return
         
-        # Check for Alt shortcuts sent as single sequences
-        # Handle Alt-backspace first (simplest patterns)
-        if key_str in ('\x1b\x7f', '\x1b\x08', '\x1b\x1b[3~'):
-            self.model.backward_kill_word()
-            self.modified = True
-            self.view.update_desired_x()
-            return
-        
-        # Handle Alt+left arrow variations
-        if key_str in ('\x1b[1;3D', '\x1bb', '\x1b[D', '\x1bOD', '\x1b\x1b[D'):  
-            self.model.left_word()
-            self.view.update_desired_x()
-            return
-            
-        # Handle Alt+right arrow variations
-        if key_str in ('\x1b[1;3C', '\x1bf', '\x1b[C', '\x1bOC', '\x1b\x1b[C'):
-            self.model.right_word()
-            self.view.update_desired_x()
-            return
         
         # Handle special keys
         if key.is_sequence:
@@ -297,6 +298,7 @@ class Editor:
                 self.model.insert_text('\n')
                 self.modified = True
                 self.view.update_desired_x()  # Reset desired X after editing
+            # Ignore any other sequences to prevent partial ESC sequences from being inserted
         else:
             # Regular character - insert it
             char = str(key)
