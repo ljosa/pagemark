@@ -195,3 +195,14 @@ class TextModel:
         # else: at end of document, do nothing
         
         self.view.render()
+    
+    def move_beginning_of_line(self):
+        """Move cursor to beginning of visual line (Emacs-style Ctrl-A)."""
+        self.cursor_position.character_index = 0
+        self.view.render()
+    
+    def move_end_of_line(self):
+        """Move cursor to end of visual line (Emacs-style Ctrl-E)."""
+        para = self.paragraphs[self.cursor_position.paragraph_index]
+        self.cursor_position.character_index = len(para)
+        self.view.render()
