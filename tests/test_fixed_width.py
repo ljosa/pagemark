@@ -7,7 +7,7 @@ def test_view_always_65_columns():
     v.num_rows = 10
     v.num_columns = 65  # Should always be 65
 
-    _ = TextModel(v, paragraphs=["This is a test of the fixed-width view."])
+    m = TextModel(v, paragraphs=["This is a test of the fixed-width view."])
 
     # Insert text that's longer than 65 characters
     long_text = "This is a very long line that should wrap at exactly 65 characters on the display"

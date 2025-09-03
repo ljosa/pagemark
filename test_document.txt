@@ -1,0 +1,5 @@
+This is a test document for the Pagemark word processor.
+
+It has multiple paragraphs to test navigation and editing.
+
+You can use the arrow keys to move around, type to insert text, and press Ctrl-Q to quit.

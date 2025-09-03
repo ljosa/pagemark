@@ -61,6 +61,16 @@ class TerminalTextView(TextView):
     lines: list[str] = []
     visual_cursor_y: int = 0
     visual_cursor_x: int = 0  # Store visual horizontal position
+    LINES_PER_PAGE: int = 54  # Standard lines per printed page
+
+    def _get_document_line_number(self, paragraph_index: int, line_within_para: int) -> int:
+        """Calculate the absolute document line number for a given paragraph and line within it."""
+        doc_line = 0
+        for i in range(paragraph_index):
+            para_lines, _ = render_paragraph(self.model.paragraphs[i], self.num_columns)
+            doc_line += len(para_lines)
+        doc_line += line_within_para
+        return doc_line
 
     @override
     def render(self):
@@ -71,22 +81,58 @@ class TerminalTextView(TextView):
             start_position = CursorPosition(paragraph_index, 0)
         else:
             start_position = CursorPosition(paragraph_index, para_counts[self.first_paragraph_line_offset - 1] + 1)
+        
+        # Build lines with page breaks
+        self.lines = []
+        doc_line_start = self._get_document_line_number(paragraph_index, self.first_paragraph_line_offset)
+        
+        # Add lines from first paragraph
         lines_wanted = min(len(para_lines) - self.first_paragraph_line_offset, self.num_rows)
-        self.lines = para_lines[self.first_paragraph_line_offset:self.first_paragraph_line_offset + lines_wanted]
+        for i in range(lines_wanted):
+            if len(self.lines) >= self.num_rows:
+                break
+            # Calculate the document line number for this line (1-based for page breaks)
+            doc_line = doc_line_start + i
+            # Add the actual content line
+            self.lines.append(para_lines[self.first_paragraph_line_offset + i])
+            # Check if we need a page break after this line
+            if (doc_line + 1) % self.LINES_PER_PAGE == 0 and doc_line > 0:
+                if len(self.lines) < self.num_rows:
+                    self.lines.append("─" * self.num_columns)  # Page break line
+        
         end_position = CursorPosition(paragraph_index, para_counts[self.first_paragraph_line_offset + lines_wanted - 1] + 1)
+        
+        # Track total document lines processed
+        doc_lines_added = lines_wanted
+        
         # Remaining paragraphs
         while len(self.lines) < self.num_rows and paragraph_index + 1 < len(self.model.paragraphs):
             paragraph_index += 1
             para_lines, para_counts = render_paragraph(self.model.paragraphs[paragraph_index], self.num_columns)
-            lines_wanted = min(len(para_lines), self.num_rows - len(self.lines))
-            self.lines += para_lines[:lines_wanted]
-            end_position = CursorPosition(paragraph_index, para_counts[lines_wanted - 1] + 1)
+            
+            for i in range(len(para_lines)):
+                if len(self.lines) >= self.num_rows:
+                    break
+                # Calculate the document line number for this line
+                doc_line = doc_line_start + doc_lines_added
+                # Add the actual content line
+                self.lines.append(para_lines[i])
+                doc_lines_added += 1
+                end_position = CursorPosition(paragraph_index, para_counts[i] + 1)
+                # Check if we need a page break after this line
+                if doc_line % self.LINES_PER_PAGE == (self.LINES_PER_PAGE - 1) and doc_line >= (self.LINES_PER_PAGE - 1):
+                    if len(self.lines) < self.num_rows:
+                        self.lines.append("─" * self.num_columns)  # Page break line
+        
         self.end_paragraph_index = paragraph_index + 1
 
         # If the cursor is outside the view, center the view on the cursor
         if self.model.cursor_position < start_position or self.model.cursor_position >= end_position:
             print(f"Centering view on cursor because cursor {self.model.cursor_position} is outside view {start_position} to {end_position}")
             self.center_view_on_cursor()
+            # Re-render after centering (recursive call)
+            self.render()
+            return
 
         self._set_visual_cursor_position()
 
@@ -96,53 +142,61 @@ class TerminalTextView(TextView):
             self.lines.append("")
 
     def _set_visual_cursor_position(self):
-        # Set visual cursor position
+        # Set visual cursor position accounting for page break lines
         cursor_para_idx = self.model.cursor_position.paragraph_index
-
-        # Calculate visual line offset for all paragraphs before cursor paragraph
-        visual_line_offset = 0
-        for para_idx in range(self.start_paragraph_index, cursor_para_idx):
-            para_lines, _ = render_paragraph(self.model.paragraphs[para_idx], self.num_columns)
-            if para_idx == self.start_paragraph_index:
-                # First paragraph may be partially shown
-                visual_line_offset += len(para_lines) - self.first_paragraph_line_offset
-            else:
-                visual_line_offset += len(para_lines)
-
-        # Now handle the cursor paragraph
+        
+        # Get document line number at start of view
+        doc_line_start = self._get_document_line_number(self.start_paragraph_index, self.first_paragraph_line_offset)
+        
+        # Calculate the cursor's document line number
+        cursor_doc_line = 0
+        for i in range(cursor_para_idx):
+            para_lines, _ = render_paragraph(self.model.paragraphs[i], self.num_columns)
+            cursor_doc_line += len(para_lines)
+        
+        # Find which line within the cursor paragraph the cursor is on
         _, para_counts = render_paragraph(self.model.paragraphs[cursor_para_idx], self.num_columns)
-
-        # Find which line within the paragraph the cursor is on
         line_index = 0
         while (line_index < len(para_counts) and
                para_counts[line_index] < self.model.cursor_position.character_index):
             line_index += 1
-
-        # Calculate visual cursor Y position
-        if cursor_para_idx == self.start_paragraph_index:
-            # Account for first paragraph offset
-            self.visual_cursor_y = visual_line_offset + line_index - self.first_paragraph_line_offset
-        else:
-            self.visual_cursor_y = visual_line_offset + line_index
-
+        cursor_doc_line += line_index
+        
+        # Calculate number of page breaks between start of view and cursor
+        page_breaks_before = 0
+        for line_num in range(doc_line_start, cursor_doc_line):
+            if line_num > 0 and line_num % self.LINES_PER_PAGE == 0:
+                page_breaks_before += 1
+        
+        # Calculate visual Y position
+        self.visual_cursor_y = cursor_doc_line - doc_line_start + page_breaks_before
+        
         # Clamp to visible screen area
         if self.visual_cursor_y < 0:
             self.visual_cursor_y = 0
-        elif self.visual_cursor_y >= self.num_rows:
-            self.visual_cursor_y = self.num_rows - 1
-
+        elif self.visual_cursor_y >= len(self.lines):
+            self.visual_cursor_y = len(self.lines) - 1
+        
+        # Skip over page break lines
+        while (self.visual_cursor_y < len(self.lines) and 
+               self.lines[self.visual_cursor_y].startswith("─")):
+            self.visual_cursor_y += 1
+        
         # Calculate visual cursor X position within the line
         if line_index == 0:
             self.visual_cursor_x = self.model.cursor_position.character_index
         else:
             # Calculate position within the current line
-            # No -1 needed here, as the space is already counted in para_counts
             self.visual_cursor_x = self.model.cursor_position.character_index - para_counts[line_index - 1]
 
         # Handle cursor at end of line that exactly fills width
         if self.visual_cursor_x == self.num_columns:
             # Cursor wraps to start of next line
             self.visual_cursor_y += 1
+            # Skip page break if present
+            while (self.visual_cursor_y < len(self.lines) and 
+                   self.lines[self.visual_cursor_y].startswith("─")):
+                self.visual_cursor_y += 1
             self.visual_cursor_x = 0
         elif self.visual_cursor_x < 0:
             self.visual_cursor_x = 0
@@ -153,15 +207,21 @@ class TerminalTextView(TextView):
     def center_view_on_cursor(self):
         _, para_counts = render_paragraph(self.model.paragraphs[self.model.cursor_position.paragraph_index], self.num_columns)
         line_index = self._find_line_index(para_counts, self.model.cursor_position.character_index)
-        half_rows = self.num_rows // 2
+        
+        # Account for page breaks when centering
+        cursor_doc_line = self._get_document_line_number(self.model.cursor_position.paragraph_index, line_index)
+        page_breaks_before = cursor_doc_line // self.LINES_PER_PAGE
+        
+        half_rows = (self.num_rows - page_breaks_before) // 2  # Adjust for page breaks
         self.first_paragraph_line_offset = line_index - half_rows  # Could be negative
+        
+        self.start_paragraph_index = self.model.cursor_position.paragraph_index
         while self.first_paragraph_line_offset < 0 and self.start_paragraph_index > 0:
             self.start_paragraph_index -= 1
             _, para_counts = render_paragraph(self.model.paragraphs[self.start_paragraph_index], self.num_columns)
             self.first_paragraph_line_offset += len(para_counts)
         if self.first_paragraph_line_offset < 0:
             self.first_paragraph_line_offset = 0
-        self.render()  # Re-render with updated start_paragraph_index and offset
 
     def _find_line_index(self, cumulative_counts: list[int], char_index: int) -> int:
         """Find the line index in cumulative_counts that contains char_index."""
