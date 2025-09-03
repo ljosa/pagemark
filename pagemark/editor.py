@@ -228,6 +228,10 @@ class Editor:
             elif str(key) == '\x05':  # Ctrl-E (move-end-of-line)
                 self.model.move_end_of_line()
                 self.view.update_desired_x()
+            elif str(key) == '\x0b':  # Ctrl-K (kill-line)
+                self.model.kill_line()
+                self.modified = True
+                self.view.update_desired_x()
             elif key.code == self.terminal.term.KEY_LEFT:
                 self.model.left_char()
                 self.view.update_desired_x()  # Reset desired X on horizontal movement

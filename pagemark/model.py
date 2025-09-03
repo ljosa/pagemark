@@ -206,3 +206,20 @@ class TextModel:
         para = self.paragraphs[self.cursor_position.paragraph_index]
         self.cursor_position.character_index = len(para)
         self.view.render()
+    
+    def kill_line(self):
+        """Delete from cursor to end of visual line (Emacs-style Ctrl-K)."""
+        para = self.paragraphs[self.cursor_position.paragraph_index]
+        pos = self.cursor_position.character_index
+        
+        if pos < len(para):
+            # Delete from cursor to end of line
+            self.paragraphs[self.cursor_position.paragraph_index] = para[:pos]
+        elif self.cursor_position.paragraph_index + 1 < len(self.paragraphs):
+            # At end of line, join with next paragraph (delete newline)
+            next_para = self.paragraphs[self.cursor_position.paragraph_index + 1]
+            self.paragraphs[self.cursor_position.paragraph_index] = para + next_para
+            del self.paragraphs[self.cursor_position.paragraph_index + 1]
+        # else: at end of document, do nothing
+        
+        self.view.render()
