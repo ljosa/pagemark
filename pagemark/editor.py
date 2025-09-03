@@ -37,6 +37,8 @@ class Editor:
         self.status_message = None
         self.prompt_mode = None  # None, 'save_filename', 'save_filename_quit', or 'quit_confirm'
         self.prompt_input = ""
+        # Track ESC key for Alt combinations
+        self.last_key_was_esc = False
 
     def _handle_resize(self, signum, frame):
         """Handle terminal resize signal."""
@@ -205,6 +207,36 @@ class Editor:
         if self.error_mode:
             return
 
+        key_str = str(key)
+        
+        # Handle ESC key - could be Alt combo starting
+        if key_str == '\x1b':
+            self.last_key_was_esc = True
+            return
+        
+        # Handle key after ESC (Alt combinations)
+        if self.last_key_was_esc:
+            self.last_key_was_esc = False
+            
+            # Alt+left (ESC followed by left arrow)
+            if key.code == self.terminal.term.KEY_LEFT or key_str in ('[D', 'OD', 'b'):
+                self.model.left_word()
+                self.view.update_desired_x()
+                return
+                
+            # Alt+right (ESC followed by right arrow)
+            if key.code == self.terminal.term.KEY_RIGHT or key_str in ('[C', 'OC', 'f'):
+                self.model.right_word()
+                self.view.update_desired_x()
+                return
+                
+            # Alt+backspace (ESC followed by backspace/delete)
+            if key.code in (self.terminal.term.KEY_BACKSPACE, 263) or key_str in ('\x7f', '\x08'):
+                self.model.backward_kill_word()
+                self.modified = True
+                self.view.update_desired_x()
+                return
+        
         # Handle Ctrl shortcuts first (not sequences)
         if str(key) == '\x04':  # Ctrl-D (delete-char)
             self.model.delete_char()
@@ -225,25 +257,25 @@ class Editor:
             self.view.update_desired_x()
             return
         
-        # Check for Alt shortcuts (can be sequences or escape + char)
-        key_str = str(key)
-        if key_str.startswith('\x1b'):
-            # Alt-left variations
-            if key_str in ('\x1b[1;3D', '\x1bb', '\x1b[D'):  
-                self.model.left_word()
-                self.view.update_desired_x()
-                return
-            # Alt-right variations  
-            elif key_str in ('\x1b[1;3C', '\x1bf', '\x1b[C'):
-                self.model.right_word()
-                self.view.update_desired_x()
-                return
-            # Alt-backspace variations
-            elif key_str in ('\x1b\x7f', '\x1b\x08', '\x1b\x1b[3~'):
-                self.model.backward_kill_word()
-                self.modified = True
-                self.view.update_desired_x()
-                return
+        # Check for Alt shortcuts sent as single sequences
+        # Handle Alt-backspace first (simplest patterns)
+        if key_str in ('\x1b\x7f', '\x1b\x08', '\x1b\x1b[3~'):
+            self.model.backward_kill_word()
+            self.modified = True
+            self.view.update_desired_x()
+            return
+        
+        # Handle Alt+left arrow variations
+        if key_str in ('\x1b[1;3D', '\x1bb', '\x1b[D', '\x1bOD', '\x1b\x1b[D'):  
+            self.model.left_word()
+            self.view.update_desired_x()
+            return
+            
+        # Handle Alt+right arrow variations
+        if key_str in ('\x1b[1;3C', '\x1bf', '\x1b[C', '\x1bOC', '\x1b\x1b[C'):
+            self.model.right_word()
+            self.view.update_desired_x()
+            return
         
         # Handle special keys
         if key.is_sequence:
