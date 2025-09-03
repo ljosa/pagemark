@@ -85,7 +85,7 @@ class TerminalView(TextView):
         # Remaining paragraphs
         while len(self.lines) < self.num_rows and paragraph_index + 1 < len(self.model.paragraphs):
             paragraph_index += 1
-            para_lines, para_counts = render_paragraph(self.model.paragraphs[paragraph_index], self.num_rows)
+            para_lines, para_counts = render_paragraph(self.model.paragraphs[paragraph_index], self.num_columns)
             lines_wanted = min(len(para_lines), self.num_rows - len(self.lines))
             self.lines += para_lines[:lines_wanted]
             end_position = CursorPosition(paragraph_index, para_counts[lines_wanted - 1] + 1)
