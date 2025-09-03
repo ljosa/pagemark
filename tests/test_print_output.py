@@ -26,20 +26,25 @@ def test_check_command_availability():
         mock_which.side_effect = lambda cmd: f"/usr/bin/{cmd}"
         output = PrintOutput()
         assert output.lpr_available == True
-        assert output.ps2pdf_available == True
-        assert output.enscript_available == True
+        assert output.lpr_available == True
         
         # No commands available
         mock_which.side_effect = lambda cmd: None
         output = PrintOutput()
         assert output.lpr_available == False
-        assert output.ps2pdf_available == False
-        assert output.enscript_available == False
+        assert output.lpr_available == False
 
 
 def test_print_to_printer_success():
     """Test successful printing to a printer."""
-    with patch("shutil.which", return_value="/usr/bin/lpr"):
+    with patch("shutil.which") as mock_which:
+        # Mock that lpr is available
+        def which_side_effect(cmd):
+            if cmd == "lpr":
+                return "/usr/bin/lpr"
+            return None
+        mock_which.side_effect = which_side_effect
+        
         output = PrintOutput()
         pages = create_test_pages()
         
@@ -55,13 +60,17 @@ def test_print_to_printer_success():
                     assert success == True
                     assert error == ""
                     
-                    # Check that lpr was called with correct arguments
-                    call_args = mock_run.call_args[0][0]
-                    assert "lpr" in call_args
-                    assert "-P" in call_args
-                    assert "TestPrinter" in call_args
-                    assert "-o" in call_args
-                    assert "sides=two-sided-long-edge" in call_args
+                    # Should have called subprocess.run once for lpr
+                    assert mock_run.call_count == 1
+                    
+                    # Check lpr command
+                    lpr_args = mock_run.call_args[0][0]
+                    assert "lpr" in lpr_args
+                    assert "-P" in lpr_args
+                    assert "TestPrinter" in lpr_args
+                    assert "-o" in lpr_args
+                    assert "sides=two-sided-long-edge" in lpr_args
+
 
 
 def test_print_to_printer_no_lpr():
@@ -94,9 +103,8 @@ def test_print_to_printer_failure():
         output = PrintOutput()
         pages = create_test_pages()
         
-        mock_result = Mock()
-        mock_result.returncode = 1
-        mock_result.stderr = "Printer not found"
+        # lpr fails
+        mock_result = Mock(returncode=1, stderr="Printer not found")
         
         with patch("subprocess.run", return_value=mock_result):
             with patch("tempfile.NamedTemporaryFile"):
@@ -109,7 +117,13 @@ def test_print_to_printer_failure():
 
 def test_print_to_printer_timeout():
     """Test handling of print command timeout."""
-    with patch("shutil.which", return_value="/usr/bin/lpr"):
+    with patch("shutil.which") as mock_which:
+        def which_side_effect(cmd):
+            if cmd == "lpr":
+                return "/usr/bin/lpr"
+            return None
+        mock_which.side_effect = which_side_effect
+        
         output = PrintOutput()
         pages = create_test_pages()
         
@@ -122,72 +136,44 @@ def test_print_to_printer_timeout():
                     assert "timed out" in error
 
 
-def test_save_to_pdf_with_tools():
-    """Test PDF generation when enscript and ps2pdf are available."""
-    with patch("shutil.which") as mock_which:
-        def which_side_effect(cmd):
-            if cmd in ["enscript", "ps2pdf"]:
-                return f"/usr/bin/{cmd}"
-            return None
+def test_save_to_ps_file():
+    """Test saving to PostScript file."""
+    output = PrintOutput()
+    pages = create_test_pages()
+    
+    with tempfile.TemporaryDirectory() as temp_dir:
+        output_file = os.path.join(temp_dir, "output.ps")
         
-        mock_which.side_effect = which_side_effect
-        output = PrintOutput()
-        pages = create_test_pages()
+        success, error = output.save_to_file(pages, output_file)
         
-        mock_result = Mock()
-        mock_result.returncode = 0
-        mock_result.stderr = ""
+        assert success == True
+        assert error == ""
+        assert os.path.exists(output_file)
         
-        with patch("subprocess.run", return_value=mock_result):
-            with patch("tempfile.NamedTemporaryFile"):
-                with patch("os.unlink"):
-                    success, error = output.save_to_pdf(pages, "output.pdf")
-                    
-                    assert success == True
-                    assert error == ""
+        # Check PostScript content
+        with open(output_file, 'r') as f:
+            content = f.read()
+            assert "%!PS-Adobe" in content
+            assert "%%Pages: 2" in content
 
 
-def test_save_to_pdf_fallback_to_text():
-    """Test PDF generation fallback when tools aren't available."""
-    with patch("shutil.which", return_value=None):
-        output = PrintOutput()
-        pages = create_test_pages()
+def test_save_to_ps_adds_extension():
+    """Test that .ps extension is added if missing."""
+    output = PrintOutput()
+    pages = create_test_pages()
+    
+    with tempfile.TemporaryDirectory() as temp_dir:
+        # Test without extension
+        output_file = os.path.join(temp_dir, "output")
         
-        with tempfile.TemporaryDirectory() as temp_dir:
-            output_file = os.path.join(temp_dir, "output.pdf")
-            
-            with patch("builtins.open", create=True) as mock_open:
-                mock_file = MagicMock()
-                mock_open.return_value.__enter__.return_value = mock_file
-                
-                success, error = output.save_to_pdf(pages, output_file)
-                
-                assert success == True
-                assert "PDF tools not available" in error
-                assert ".txt" in error
+        success, error = output.save_to_file(pages, output_file)
+        
+        assert success == True
+        assert error == ""
+        # Should have added .ps extension
+        assert os.path.exists(output_file + ".ps")
 
 
-def test_save_as_text():
-    """Test saving pages as text file."""
-    with patch("shutil.which", return_value=None):
-        output = PrintOutput()
-        pages = create_test_pages()
-        
-        with tempfile.TemporaryDirectory() as temp_dir:
-            output_file = os.path.join(temp_dir, "output.txt")
-            
-            success, error = output._save_as_text(pages, output_file)
-            
-            assert success == True
-            assert error == ""
-            assert os.path.exists(output_file)
-            
-            # Check content
-            with open(output_file, 'r') as f:
-                content = f.read()
-                assert "Test Page 1" in content
-                assert "Test Page 2" in content
-                assert "\f" in content  # Form feed between pages
 
 
 def test_validate_output_path_valid():
@@ -195,7 +181,7 @@ def test_validate_output_path_valid():
     output = PrintOutput()
     
     with tempfile.TemporaryDirectory() as temp_dir:
-        valid_path = os.path.join(temp_dir, "output.pdf")
+        valid_path = os.path.join(temp_dir, "output.ps")
         
         is_valid, error = output.validate_output_path(valid_path)
         
@@ -207,7 +193,7 @@ def test_validate_output_path_nonexistent_directory():
     """Test validating path with non-existent directory."""
     output = PrintOutput()
     
-    invalid_path = "/nonexistent/directory/output.pdf"
+    invalid_path = "/nonexistent/directory/output.ps"
     
     is_valid, error = output.validate_output_path(invalid_path)
     
@@ -223,7 +209,7 @@ def test_validate_output_path_readonly_directory():
         # Make directory read-only
         os.chmod(temp_dir, 0o444)
         
-        readonly_path = os.path.join(temp_dir, "output.pdf")
+        readonly_path = os.path.join(temp_dir, "output.ps")
         
         is_valid, error = output.validate_output_path(readonly_path)
         
@@ -239,7 +225,7 @@ def test_validate_output_path_readonly_file():
     output = PrintOutput()
     
     with tempfile.TemporaryDirectory() as temp_dir:
-        file_path = os.path.join(temp_dir, "readonly.pdf")
+        file_path = os.path.join(temp_dir, "readonly.ps")
         
         # Create read-only file
         with open(file_path, 'w') as f:
@@ -255,16 +241,16 @@ def test_validate_output_path_readonly_file():
         assert "not writable" in error
 
 
-def test_pdf_extension_handling():
-    """Test that .pdf extension is added if missing."""
+def test_save_to_ps_with_extension():
+    """Test saving with explicit .ps extension."""
     output = PrintOutput()
+    pages = create_test_pages()
     
-    # Mock the actual save methods
-    with patch.object(output, '_save_as_text', return_value=(True, "")):
-        # Test without extension
-        success, error = output.save_to_pdf([], "output")
-        # The method should add .pdf extension internally
+    with tempfile.TemporaryDirectory() as temp_dir:
+        output_file = os.path.join(temp_dir, "output.ps")
         
-        # Test with extension
-        success, error = output.save_to_pdf([], "output.pdf")
+        success, error = output.save_to_file(pages, output_file)
+        
         assert success == True
+        assert error == ""
+        assert os.path.exists(output_file)

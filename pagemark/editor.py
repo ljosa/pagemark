@@ -141,8 +141,8 @@ class Editor:
             status_override = f" File to save in: {self.prompt_input}"
         elif self.prompt_mode == 'quit_confirm':
             status_override = " Save file? (y, n) "
-        elif self.prompt_mode == 'pdf_filename':
-            status_override = f" Save PDF as: {self.prompt_input}"
+        elif self.prompt_mode == 'ps_filename':
+            status_override = f" Save PS as: {self.prompt_input}"
         elif self.status_message:
             status_override = f" {self.status_message}"
 
@@ -179,12 +179,12 @@ class Editor:
         elif self.prompt_mode == 'quit_confirm':
             self._handle_quit_confirm(key)
             return
-        elif self.prompt_mode == 'pdf_filename':
-            self._handle_pdf_filename_prompt(key)
+        elif self.prompt_mode == 'ps_filename':
+            self._handle_ps_filename_prompt(key)
             return
 
         # Check for quit command (Ctrl-Q)
-        if not key.is_sequence and str(key) == '\x11':  # Ctrl-Q
+        if (hasattr(key, 'is_sequence') and not key.is_sequence and str(key) == '\x11') or key == '\x11':  # Ctrl-Q
             if self.modified:
                 self.prompt_mode = 'quit_confirm'
             else:
@@ -192,12 +192,12 @@ class Editor:
             return
 
         # Check for save command (Ctrl-S)
-        if not key.is_sequence and str(key) == '\x13':  # Ctrl-S
+        if (hasattr(key, 'is_sequence') and not key.is_sequence and str(key) == '\x13') or key == '\x13':  # Ctrl-S
             self._handle_save()
             return
         
         # Check for print command (Ctrl-P)
-        if not key.is_sequence and str(key) == '\x10':  # Ctrl-P
+        if (hasattr(key, 'is_sequence') and not key.is_sequence and str(key) == '\x10') or key == '\x10':  # Ctrl-P
             self._handle_print()
             return
 
@@ -363,18 +363,18 @@ class Editor:
             self.prompt_mode = None
             self.prompt_input = ""
     
-    def _handle_pdf_filename_prompt(self, key):
-        """Handle keypress during PDF filename prompt."""
+    def _handle_ps_filename_prompt(self, key):
+        """Handle keypress during PS filename prompt."""
         if key == '\x1b' or key == '\x07':  # ESC or Ctrl-G
             # Cancel prompt
             self.prompt_mode = None
             self.prompt_input = ""
             self._pending_print_pages = None
-            self.status_message = "PDF save cancelled"
+            self.status_message = "PS save cancelled"
         elif key.code == self.terminal.term.KEY_ENTER:
             # Save with entered filename
             if self.prompt_input and hasattr(self, '_pending_print_pages'):
-                self._save_to_pdf(self._pending_print_pages, self.prompt_input)
+                self._save_to_ps(self._pending_print_pages, self.prompt_input)
                 self._pending_print_pages = None
             self.prompt_mode = None
             self.prompt_input = ""
@@ -442,10 +442,10 @@ class Editor:
         elif result.action == PrintAction.PRINT:
             # Print to printer
             self._print_to_printer(dialog.pages, result.printer_name, result.double_sided)
-        elif result.action == PrintAction.SAVE_PDF:
-            # Save to PDF - prompt for filename
-            self.prompt_mode = 'pdf_filename'
-            self.prompt_input = result.pdf_filename
+        elif result.action == PrintAction.SAVE_PS:
+            # Save to PS file - prompt for filename
+            self.prompt_mode = 'ps_filename'
+            self.prompt_input = result.ps_filename
             # Store pages for later use
             self._pending_print_pages = dialog.pages
         
@@ -474,15 +474,15 @@ class Editor:
         else:
             self.status_message = f"✗ Print failed: {error}"
     
-    def _save_to_pdf(self, pages, filename):
-        """Save pages to PDF file.
+    def _save_to_ps(self, pages, filename):
+        """Save pages to PostScript file.
         
         Args:
             pages: Formatted pages to save.
-            filename: Output PDF filename.
+            filename: Output PS filename.
         """
         # Show progress message
-        self.status_message = f"Saving PDF to {filename}..."
+        self.status_message = f"Saving PS to {filename}..."
         self._draw()
         
         # Validate path first
@@ -493,12 +493,12 @@ class Editor:
             return
         
         # Perform the save operation
-        success, message = output.save_to_pdf(pages, filename)
+        success, message = output.save_to_file(pages, filename)
         
         if success:
-            if message:  # Fallback to text file
+            if message:  # If there's a message
                 self.status_message = f"✓ {message}"
             else:
-                self.status_message = f"✓ Successfully saved PDF to {filename}"
+                self.status_message = f"✓ Successfully saved PS to {filename}"
         else:
             self.status_message = f"✗ {message}"
