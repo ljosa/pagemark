@@ -1,4 +1,3 @@
-import pytest
 from pagemark import TextModel, TerminalTextView, CursorPosition
 
 

@@ -1,5 +1,4 @@
-import pytest
-from pagemark import TextModel, TerminalTextView, CursorPosition
+from pagemark import TextModel, TerminalTextView
 
 
 def test_insert_paragraph_break_empty():

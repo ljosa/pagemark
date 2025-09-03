@@ -30,38 +30,82 @@ class TerminalInterface:
         """Clear the entire screen."""
         print(self.term.clear)
         
-    def draw_lines(self, lines: list[str], cursor_y: int, cursor_x: int):
-        """Draw text lines and position cursor.
+    def draw_lines(self, lines: list[str], cursor_y: int, cursor_x: int, 
+                   left_margin: int = 0, view_width: int = 65):
+        """Draw text lines and position cursor with optional left margin.
         
         Args:
             lines: List of strings to display
             cursor_y: Cursor row position (0-based)
             cursor_x: Cursor column position (0-based)
+            left_margin: Number of spaces to indent from left
+            view_width: Width of the view area
         """
         # Clear screen first
         print(self.term.home + self.term.clear, end='')
         
-        # Draw each line
+        # Draw each line with left margin
         for y, line in enumerate(lines):
-            # Move to position and draw line
-            print(self.term.move(y, 0) + line[:self.term.width], end='')
+            # Move to position and draw line with margin
+            print(self.term.move(y, left_margin), end='')
+            # Ensure line is exactly view_width characters (pad or truncate)
+            display_line = line[:view_width].ljust(view_width)
+            print(display_line, end='')
             
         # Draw status line at bottom
         status = f" Line {cursor_y + 1}, Col {cursor_x + 1} | Ctrl-Q to quit "
         print(self.term.move(self.term.height - 1, 0), end='')
         print(self.term.reverse + status.ljust(self.term.width) + self.term.normal, end='')
         
-        # Position cursor
-        print(self.term.move(cursor_y, cursor_x) + self.term.normal_cursor, end='', flush=True)
+        # Position cursor (adjust for margin)
+        print(self.term.move(cursor_y, cursor_x + left_margin) + self.term.normal_cursor, end='', flush=True)
+    
+    def draw_error_message(self, message1: str, message2: str = ""):
+        """Draw an error message in the center of the screen.
         
-    def get_key(self):
+        Args:
+            message1: Primary error message
+            message2: Secondary information
+        """
+        # Clear screen first
+        print(self.term.home + self.term.clear, end='')
+        
+        # Calculate center position
+        center_y = self.term.height // 2
+        
+        # Draw error box
+        box_width = max(len(message1), len(message2)) + 4
+        left_margin = (self.term.width - box_width) // 2
+        
+        # Draw box
+        print(self.term.move(center_y - 2, left_margin) + "╔" + "═" * (box_width - 2) + "╗", end='')
+        print(self.term.move(center_y - 1, left_margin) + "║ " + message1.center(box_width - 4) + " ║", end='')
+        if message2:
+            print(self.term.move(center_y, left_margin) + "║ " + message2.center(box_width - 4) + " ║", end='')
+            print(self.term.move(center_y + 1, left_margin) + "╚" + "═" * (box_width - 2) + "╝", end='')
+        else:
+            print(self.term.move(center_y, left_margin) + "╚" + "═" * (box_width - 2) + "╝", end='')
+        
+        # Draw help text at bottom
+        help_text = " Ctrl-Q to quit | Resize terminal to continue "
+        help_pos = (self.term.width - len(help_text)) // 2
+        print(self.term.move(self.term.height - 1, help_pos), end='')
+        print(self.term.reverse + help_text + self.term.normal, end='', flush=True)
+        
+    def get_key(self, timeout=None):
         """Get a single keypress from the user.
         
+        Args:
+            timeout: Timeout in seconds (None for blocking, 0 for non-blocking)
+            
         Returns:
             blessed.keyboard.Keystroke object
         """
-        return self.term.inkey()
-        
+        if timeout is None:
+            return self.term.inkey()
+        else:
+            return self.term.inkey(timeout=timeout)
+    
     @property
     def width(self):
         """Terminal width in columns."""
