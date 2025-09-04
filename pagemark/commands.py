@@ -194,6 +194,11 @@ class TransposeWordsCommand(EditCommand):
         editor.model.transpose_words()
 
 
+class CapitalizeWordCommand(EditCommand):
+    def _edit(self, editor, key_event):
+        editor.model.capitalize_word()
+
+
 class CommandRegistry:
     """Registry for mapping key combinations to commands."""
     
@@ -229,6 +234,7 @@ class CommandRegistry:
         self.register((KeyType.CTRL, '^'), CenterLineCommand())
         self.register((KeyType.CTRL, 't'), TransposeCharsCommand())
         self.register((KeyType.ALT, 't'), TransposeWordsCommand())
+        self.register((KeyType.ALT, 'c'), CapitalizeWordCommand())
         
         # System commands
         self.register((KeyType.CTRL, 'q'), QuitCommand())

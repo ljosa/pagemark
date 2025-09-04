@@ -340,6 +340,40 @@ class TextModel:
         
         self.view.render()
     
+    def capitalize_word(self):
+        """Capitalize the word at or after cursor position (Emacs M-c).
+        
+        Move forward to beginning of word if not at one, capitalize first letter,
+        lowercase rest, and move cursor to end of word.
+        """
+        para = self.paragraphs[self.cursor_position.paragraph_index]
+        pos = self.cursor_position.character_index
+        para_len = len(para)
+        
+        # Skip to start of word if not at one
+        while pos < para_len and para[pos].isspace():
+            pos += 1
+        
+        if pos >= para_len:
+            return
+        
+        # Find end of word
+        word_start = pos
+        while pos < para_len and not para[pos].isspace():
+            pos += 1
+        word_end = pos
+        
+        # Capitalize first letter, lowercase rest
+        word = para[word_start:word_end]
+        if word:
+            capitalized = word[0].upper() + word[1:].lower()
+            self.paragraphs[self.cursor_position.paragraph_index] = (
+                para[:word_start] + capitalized + para[word_end:]
+            )
+            self.cursor_position.character_index = word_end
+        
+        self.view.render()
+    
     def kill_word(self):
         """Delete from cursor to end of current/next word (Emacs M-d)."""
         para = self.paragraphs[self.cursor_position.paragraph_index]
