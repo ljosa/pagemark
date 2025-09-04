@@ -15,6 +15,7 @@ from .print_output import PrintOutput
 from .keyboard import KeyboardHandler, KeyEvent, KeyType
 from .constants import EditorConstants
 from .commands import CommandRegistry
+from .undo import UndoManager, ModelSnapshot, UndoEntry
 
 
 class Editor:
@@ -43,6 +44,8 @@ class Editor:
         self.prompt_mode = None  # None, 'save_filename', 'save_filename_quit', 'quit_confirm', or 'help'
         self.prompt_input = ""
         self.help_visible = False  # Track if help screen is visible
+        # Undo/redo
+        self.undo = UndoManager()
 
     def _handle_resize(self, signum, frame):
         """Handle terminal resize signal."""
@@ -184,6 +187,41 @@ class Editor:
             status_override=status_override,
             selection_ranges=selection_ranges
         )
+
+    def _snapshot_state(self) -> ModelSnapshot:
+        # Copy paragraphs list (strings are immutable)
+        paragraphs_copy = list(self.model.paragraphs)
+        cp = self.model.cursor_position
+        sel_start = self.model.selection_start
+        sel_end = self.model.selection_end
+        start_tuple = None if sel_start is None else (sel_start.paragraph_index, sel_start.character_index)
+        end_tuple = None if sel_end is None else (sel_end.paragraph_index, sel_end.character_index)
+        return ModelSnapshot(
+            paragraphs=paragraphs_copy,
+            cursor_paragraph_index=cp.paragraph_index,
+            cursor_character_index=cp.character_index,
+            selection_start=start_tuple,
+            selection_end=end_tuple,
+        )
+
+    def _apply_snapshot(self, snap: ModelSnapshot):
+        # Restore model state and redraw
+        self.model.paragraphs = list(snap.paragraphs)
+        self.model.cursor_position.paragraph_index = snap.cursor_paragraph_index
+        self.model.cursor_position.character_index = snap.cursor_character_index
+        if snap.selection_start is None:
+            self.model.selection_start = None
+        else:
+            from .model import CursorPosition
+            self.model.selection_start = CursorPosition(*snap.selection_start)
+        if snap.selection_end is None:
+            self.model.selection_end = None
+        else:
+            from .model import CursorPosition
+            self.model.selection_end = CursorPosition(*snap.selection_end)
+        # Modified flag reflects that buffer differs from last saved content
+        self.modified = True
+        self.view.render()
 
     def _draw_error(self):
         """Draw error message when terminal is too narrow."""

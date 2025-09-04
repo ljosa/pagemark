@@ -88,7 +88,17 @@ class EditCommand(EditorCommand):
     
     def execute(self, editor: 'Editor', key_event: 'KeyEvent') -> bool:
         """Editing commands modify the document."""
+        # Capture snapshot before edit
+        before = editor._snapshot_state()
         self._edit(editor, key_event)
+        # Capture snapshot after edit and push to undo stack
+        after = editor._snapshot_state()
+        try:
+            from .undo import UndoEntry
+            editor.undo.push(UndoEntry(before=before, after=after))
+        except Exception:
+            # Undo is best-effort; avoid breaking edits due to undo issues
+            pass
         editor.view.update_desired_x()
         return True
     
@@ -286,6 +296,22 @@ class PasteCommand(EditCommand):
         editor.model.paste()
 
 
+class UndoCommand(SystemCommand):
+    def _execute_system(self, editor, key_event):
+        if editor.undo.undo(editor):
+            editor.status_message = "Undone"
+        else:
+            editor.status_message = "Nothing to undo"
+
+
+class RedoCommand(SystemCommand):
+    def _execute_system(self, editor, key_event):
+        if editor.undo.redo(editor):
+            editor.status_message = "Redone"
+        else:
+            editor.status_message = "Nothing to redo"
+
+
 class CommandRegistry:
     """Registry for mapping key combinations to commands."""
     
@@ -333,6 +359,9 @@ class CommandRegistry:
         self.register((KeyType.CTRL, 'x'), CutCommand())
         self.register((KeyType.CTRL, 'c'), CopyCommand())
         self.register((KeyType.CTRL, 'v'), PasteCommand())
+        # Undo/redo
+        self.register((KeyType.CTRL, 'z'), UndoCommand())
+        self.register((KeyType.CTRL, 'y'), RedoCommand())
         
         # System commands
         self.register((KeyType.CTRL, 'q'), QuitCommand())
