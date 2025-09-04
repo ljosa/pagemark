@@ -184,6 +184,11 @@ class TransposeCharsCommand(EditCommand):
         editor.model.transpose_chars()
 
 
+class TransposeWordsCommand(EditCommand):
+    def _edit(self, editor, key_event):
+        editor.model.transpose_words()
+
+
 class CommandRegistry:
     """Registry for mapping key combinations to commands."""
     
@@ -217,6 +222,7 @@ class CommandRegistry:
         self.register((KeyType.SPECIAL, 'enter'), InsertNewlineCommand())
         self.register((KeyType.CTRL, '^'), CenterLineCommand())
         self.register((KeyType.CTRL, 't'), TransposeCharsCommand())
+        self.register((KeyType.ALT, 't'), TransposeWordsCommand())
         
         # System commands
         self.register((KeyType.CTRL, 'q'), QuitCommand())

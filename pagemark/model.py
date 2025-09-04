@@ -104,6 +104,66 @@ class TextModel:
             word_count += len(words)
         return word_count
     
+    def transpose_words(self):
+        """Transpose word before cursor with word after cursor.
+        
+        Emacs behavior: Transpose the words around point, moving forward.
+        """
+        para_idx = self.cursor_position.paragraph_index
+        paragraph = self.paragraphs[para_idx]
+        char_idx = self.cursor_position.character_index
+        
+        # Find word boundaries
+        import re
+        words = list(re.finditer(r'\b\w+\b', paragraph))
+        
+        if len(words) < 2:
+            return
+        
+        # Find which words to transpose
+        current_word_idx = None
+        for i, match in enumerate(words):
+            if match.start() <= char_idx <= match.end():
+                current_word_idx = i
+                break
+            elif char_idx < match.start():
+                current_word_idx = i - 1 if i > 0 else 0
+                break
+        
+        if current_word_idx is None:
+            # Cursor is after all words
+            if len(words) >= 2:
+                current_word_idx = len(words) - 2
+            else:
+                return
+        
+        # Ensure we have two words to transpose
+        if current_word_idx < 0 or current_word_idx >= len(words) - 1:
+            if len(words) >= 2:
+                # At end, transpose last two words
+                current_word_idx = len(words) - 2
+            else:
+                return
+        
+        # Get the two words to transpose
+        word1 = words[current_word_idx]
+        word2 = words[current_word_idx + 1]
+        
+        # Build the new paragraph
+        new_paragraph = (
+            paragraph[:word1.start()] +
+            word2.group() +
+            paragraph[word1.end():word2.start()] +
+            word1.group() +
+            paragraph[word2.end():]
+        )
+        
+        self.paragraphs[para_idx] = new_paragraph
+        
+        # Move cursor to end of transposed region
+        self.cursor_position.character_index = word2.start() + len(word1.group())
+        self.view.render()
+    
     def transpose_chars(self):
         """Transpose character before cursor with character after cursor.
         
