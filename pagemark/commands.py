@@ -199,6 +199,11 @@ class CapitalizeWordCommand(EditCommand):
         editor.model.capitalize_word()
 
 
+class UpcaseWordCommand(EditCommand):
+    def _edit(self, editor, key_event):
+        editor.model.upcase_word()
+
+
 class CommandRegistry:
     """Registry for mapping key combinations to commands."""
     
@@ -235,6 +240,7 @@ class CommandRegistry:
         self.register((KeyType.CTRL, 't'), TransposeCharsCommand())
         self.register((KeyType.ALT, 't'), TransposeWordsCommand())
         self.register((KeyType.ALT, 'c'), CapitalizeWordCommand())
+        self.register((KeyType.ALT, 'u'), UpcaseWordCommand())
         
         # System commands
         self.register((KeyType.CTRL, 'q'), QuitCommand())
