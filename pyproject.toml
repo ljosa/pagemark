@@ -8,9 +8,16 @@ dependencies = [
     "blessed>=1.21.0",
 ]
 
+[project.scripts]
+pagemark = "pagemark.__main__:main"
+
 [dependency-groups]
 dev = [
     "pyright>=1.1.404",
     "pytest>=8.4.1",
     "ruff>=0.12.11",
 ]
+
+[build-system]
+requires = ["hatchling>=1.18.0"]
+build-backend = "hatchling.build"
