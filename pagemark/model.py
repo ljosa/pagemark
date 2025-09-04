@@ -340,6 +340,31 @@ class TextModel:
         
         self.view.render()
     
+    def kill_word(self):
+        """Delete from cursor to end of current/next word (Emacs M-d)."""
+        para = self.paragraphs[self.cursor_position.paragraph_index]
+        pos = self.cursor_position.character_index
+        para_len = len(para)
+        
+        if pos < para_len:
+            end_pos = pos
+            
+            # Skip current word if we're in one
+            while end_pos < para_len and not para[end_pos].isspace():
+                end_pos += 1
+            
+            # Skip whitespace after word
+            while end_pos < para_len and para[end_pos].isspace():
+                end_pos += 1
+            
+            # Delete from cursor to end_pos
+            self.paragraphs[self.cursor_position.paragraph_index] = para[:pos] + para[end_pos:]
+        elif self.cursor_position.paragraph_index < len(self.paragraphs) - 1:
+            # At end of paragraph, join with next paragraph
+            self._join_with_next_paragraph()
+        
+        self.view.render()
+    
     def backward_kill_word(self):
         """Delete from cursor back to beginning of previous word (Emacs-style)."""
         para = self.paragraphs[self.cursor_position.paragraph_index]

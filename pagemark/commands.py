@@ -116,6 +116,11 @@ class KillWordCommand(EditCommand):
         editor.model.backward_kill_word()
 
 
+class ForwardKillWordCommand(EditCommand):
+    def _edit(self, editor, key_event):
+        editor.model.kill_word()
+
+
 class InsertNewlineCommand(EditCommand):
     def _edit(self, editor, key_event):
         editor.model.insert_text('\n')
@@ -219,6 +224,7 @@ class CommandRegistry:
         self.register((KeyType.CTRL, 'd'), DeleteCharCommand())
         self.register((KeyType.CTRL, 'k'), KillLineCommand())
         self.register((KeyType.ALT, 'backspace'), KillWordCommand())
+        self.register((KeyType.ALT, 'd'), ForwardKillWordCommand())
         self.register((KeyType.SPECIAL, 'enter'), InsertNewlineCommand())
         self.register((KeyType.CTRL, '^'), CenterLineCommand())
         self.register((KeyType.CTRL, 't'), TransposeCharsCommand())
