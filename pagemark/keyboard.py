@@ -96,97 +96,20 @@ class KeyboardHandler:
     }
     
     def __init__(self, terminal_interface):
-        """Initialize with a terminal interface.
-        
-        Args:
-            terminal_interface: TerminalInterface instance for getting keys
-        """
+        """Initialize with a terminal interface."""
         self.terminal = terminal_interface
-        self._buffer = ""  # Buffer for collecting escape sequences
         
     def get_key_event(self, timeout: Optional[float] = None) -> Optional[KeyEvent]:
-        """Get next key event with proper Alt detection.
-        
-        Args:
-            timeout: Timeout in seconds for waiting for input
-            
-        Returns:
-            KeyEvent object or None if no input
-        """
-        # If we have buffered input, try to match it first
-        if self._buffer:
-            # Check if buffer matches any known sequences
-            if self._buffer in self.ALT_SEQUENCES:
-                result = self._buffer
-                self._buffer = ""
-                base_key, is_alt = self.ALT_SEQUENCES[result]
-                return KeyEvent(
-                    key_type=KeyType.ALT,
-                    value=base_key,
-                    raw=result,
-                    is_alt=is_alt,
-                    is_sequence=False
-                )
-            
-            # Check if buffer could be start of a sequence
-            could_be_sequence = any(seq.startswith(self._buffer) for seq in self.ALT_SEQUENCES)
-            
-            if not could_be_sequence:
-                # Not a sequence, return buffered content as regular keys
-                result = self._buffer[0]
-                self._buffer = self._buffer[1:]
-                return self.parse_raw_key(result)
-        
-        # Get next key
+        """Get next key event with consolidated Alt/Shift handling."""
         key = self.terminal.get_key(timeout)
         if not key:
-            # If we have a buffer and no more input, flush it
-            if self._buffer:
-                result = self._buffer[0] if self._buffer else None
-                self._buffer = self._buffer[1:] if len(self._buffer) > 1 else ""
-                return self.parse_raw_key(result) if result else None
             return None
-        
         key_str = str(key)
-        
-        # Check if this is a complete Alt sequence (ESC + letter)
-        if len(key_str) >= 2 and key_str[0] == '\x1b':
-            # Check for Shift sequences first
-            if key_str in self.SHIFT_SEQUENCES:
-                return KeyEvent(
-                    key_type=KeyType.SHIFT_SPECIAL,
-                    value=self.SHIFT_SEQUENCES[key_str],
-                    raw=key_str,
-                    is_shift=True,
-                    is_sequence=True
-                )
-            # Check against known Alt sequences
-            elif key_str in self.ALT_SEQUENCES:
-                base_key, is_alt = self.ALT_SEQUENCES[key_str]
-                return KeyEvent(
-                    key_type=KeyType.ALT,
-                    value=base_key,
-                    raw=key_str,
-                    is_alt=is_alt,
-                    is_sequence=False
-                )
-            # For ESC + single letter not in ALT_SEQUENCES
-            elif len(key_str) == 2 and key_str[1].isalpha():
-                return KeyEvent(
-                    key_type=KeyType.ALT,
-                    value=key_str[1].lower(),
-                    raw=key_str,
-                    is_alt=True,
-                    is_sequence=False
-                )
-        
-        # If it starts with ESC, buffer it and try to collect the full sequence
+
+        # Combine ESC with the immediate next keystroke (non-blocking)
         if key_str == '\x1b':
-            # Only buffer ESC if it could be start of a sequence
-            # Check next key with very short timeout
-            next_key = self.terminal.get_key(timeout=0.001)
+            next_key = self.terminal.get_key(timeout=0)
             if next_key:
-                # Got a key after ESC, combine them
                 combined = key_str + str(next_key)
                 if combined in self.SHIFT_SEQUENCES:
                     return KeyEvent(
@@ -196,7 +119,7 @@ class KeyboardHandler:
                         is_shift=True,
                         is_sequence=True
                     )
-                elif combined in self.ALT_SEQUENCES:
+                if combined in self.ALT_SEQUENCES:
                     base_key, is_alt = self.ALT_SEQUENCES[combined]
                     return KeyEvent(
                         key_type=KeyType.ALT,
@@ -205,23 +128,25 @@ class KeyboardHandler:
                         is_alt=is_alt,
                         is_sequence=False
                     )
-                elif len(str(next_key)) == 1 and str(next_key).isalpha():
-                    # Alt+letter
+                nstr = str(next_key)
+                if len(nstr) == 1 and nstr.isalpha():
                     return KeyEvent(
                         key_type=KeyType.ALT,
-                        value=str(next_key).lower(),
+                        value=nstr.lower(),
                         raw=combined,
                         is_alt=True,
                         is_sequence=False
                     )
-            # Just ESC by itself
+                # Fallback: handle next_key normally
+                return self.parse_key(next_key)
+            # Bare ESC
             return KeyEvent(
                 key_type=KeyType.SPECIAL,
                 value='escape',
                 raw='\x1b',
                 is_sequence=False
             )
-            
+
         return self.parse_key(key)
     
     def parse_raw_key(self, key_str: str) -> KeyEvent:
@@ -271,7 +196,16 @@ class KeyboardHandler:
         """
         key_str = str(key)
         
-        # Check for known Alt sequences first
+        # Check for known Shift/Alt sequences by raw string first
+        if key_str in self.SHIFT_SEQUENCES:
+            return KeyEvent(
+                key_type=KeyType.SHIFT_SPECIAL,
+                value=self.SHIFT_SEQUENCES[key_str],
+                raw=key_str,
+                is_shift=True,
+                is_sequence=hasattr(key, 'is_sequence') and key.is_sequence,
+                code=key.code if hasattr(key, 'code') else None
+            )
         if key_str in self.ALT_SEQUENCES:
             base_key, is_alt = self.ALT_SEQUENCES[key_str]
             return KeyEvent(
@@ -294,20 +228,14 @@ class KeyboardHandler:
                 code=key.code if hasattr(key, 'code') else None
             )
         
-        # Check for bare ESC - might be Alt modifier or ESC key
+        # Bare ESC is handled in get_key_event
         if key_str == '\x1b':
-            # Check if next key follows immediately (Alt+key pattern)
-            next_key = self.terminal.get_key(timeout=EditorConstants.ALT_KEY_TIMEOUT)
-            if next_key:
-                return self._handle_escape_sequence(next_key)
-            else:
-                # Just ESC by itself
-                return KeyEvent(
-                    key_type=KeyType.SPECIAL,
-                    value='escape',
-                    raw=key_str,
-                    is_sequence=False
-                )
+            return KeyEvent(
+                key_type=KeyType.SPECIAL,
+                value='escape',
+                raw=key_str,
+                is_sequence=False
+            )
         
         # Handle special keys from blessed first (before checking Ctrl keys)
         # This ensures that special sequences are properly identified

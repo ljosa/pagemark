@@ -62,28 +62,27 @@ class Editor:
         """Run the main editor loop."""
         self.terminal.setup()
         self.running = True
-        self._ctrl_c_pressed = False  # Flag for Ctrl-C detection
-
         # Set up signal handlers
         original_winch_handler = signal.signal(signal.SIGWINCH, self._handle_resize)
-        original_int_handler = signal.signal(signal.SIGINT, self._handle_sigint)  # Custom handler for Ctrl-C
+        # Preserve existing SIGINT handler; Ctrl-C is delivered as keystroke (ISIG disabled)
+        original_int_handler = signal.getsignal(signal.SIGINT)
 
         try:
             # Main event loop
             with self.terminal.term.cbreak():
-                # Disable flow control AFTER entering cbreak mode
+                # Disable flow control and special processing AFTER entering cbreak mode
                 old_settings = None
                 try:
                     old_settings = termios.tcgetattr(sys.stdin)
                     new_settings = list(old_settings)  # Make it mutable
                     # Disable IXON/IXOFF in input flags (index 0) to allow Ctrl-S and Ctrl-Q
                     new_settings[0] &= ~(termios.IXON | termios.IXOFF)
-                    # Also disable IEXTEN in local flags so Ctrl-V (VLNEXT) is not intercepted by tty
+                    # Disable IEXTEN so Ctrl-V (VLNEXT) is not intercepted by the tty
+                    # Disable ISIG so Ctrl-C arrives as a keystroke (handled by KeyboardHandler)
                     try:
-                        new_settings[3] &= ~termios.IEXTEN
+                        new_settings[3] &= ~(termios.IEXTEN | termios.ISIG)
                     except AttributeError:
                         pass
-                    # Note: We DON'T disable ISIG here; KeyboardInterrupt is handled explicitly
                     termios.tcsetattr(sys.stdin, termios.TCSANOW, new_settings)
                 except (termios.error, AttributeError, OSError):
                     pass
@@ -118,24 +117,9 @@ class Editor:
                     ready, _, _ = select.select([0, self._resize_pipe_r], [], [])
                     
                     if self._resize_pipe_r in ready:
-                        # Clear the pipe
-                        data = os.read(self._resize_pipe_r, 1024)
-                        
-                        # Check if this is a Ctrl-C signal
-                        if self._ctrl_c_pressed:
-                            self._ctrl_c_pressed = False
-                            # Create synthetic Ctrl-C event for copy
-                            from .keyboard import KeyEvent
-                            ctrl_c_event = KeyEvent(
-                                key_type=KeyType.CTRL,
-                                value='c',
-                                raw='\x03',
-                                is_ctrl=True
-                            )
-                            self._handle_key_event(ctrl_c_event)
-                            need_draw = True
-                        elif self.running:
-                            # Normal resize event
+                        # Clear the pipe (resize wake)
+                        os.read(self._resize_pipe_r, 1024)
+                        if self.running:
                             # Force re-render on resize
                             if hasattr(self, '_rendered_once'):
                                 delattr(self, '_rendered_once')
@@ -156,7 +140,7 @@ class Editor:
                         pass
 
         except KeyboardInterrupt:
-            # Handle Ctrl-C gracefully
+            # With ISIG disabled, this should not be raised; keep for safety
             pass
         finally:
             # Restore original signal handlers

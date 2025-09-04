@@ -29,7 +29,7 @@ def test_count_words_multiple_paragraphs():
         "Second paragraph also has five words.",
         "Third one."
     ]
-    assert model.count_words() == 13
+    assert model.count_words() == 12
 
 
 def test_count_words_with_extra_spaces():

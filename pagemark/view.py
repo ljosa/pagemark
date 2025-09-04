@@ -136,8 +136,8 @@ class TerminalTextView(TextView):
         current_line_offset = self.first_paragraph_line_offset
         
         for line_idx, line in enumerate(self.lines):
-            # Skip page break lines
-            if line == "-" * 76:
+            # Skip page break lines consistently
+            if self._is_page_break_line(line):
                 selection_ranges.append(None)
                 continue
             
@@ -243,7 +243,6 @@ class TerminalTextView(TextView):
 
         # If the cursor is outside the view, center the view on the cursor
         if self.model.cursor_position < start_position or self.model.cursor_position >= end_position:
-            print(f"Centering view on cursor because cursor {self.model.cursor_position} is outside view {start_position} to {end_position}")
             self.center_view_on_cursor()
             # Re-render after centering (recursive call)
             self.render()
