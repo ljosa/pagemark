@@ -6,6 +6,7 @@ import blessed
 from pagemark.editor import Editor
 from pagemark.print_dialog import PrintAction, PrintOptions
 from pagemark.terminal import TerminalInterface
+from pagemark.keyboard import KeyEvent, KeyType
 
 
 def create_mock_editor():
@@ -52,11 +53,14 @@ def test_ctrl_p_handler():
         mock_dialog_class.return_value = mock_dialog
         
         # Simulate Ctrl-P keypress
-        key = Mock()
-        key.is_sequence = False
-        key.__str__ = lambda self: '\x10'  # Ctrl-P
+        key_event = KeyEvent(
+            key_type=KeyType.CTRL,
+            value='p',
+            raw='\x10',
+            is_ctrl=True
+        )
         
-        editor._handle_key(key)
+        editor._handle_key_event(key_event)
         
         # Verify dialog was created and shown
         mock_dialog_class.assert_called_once_with(editor.model, editor.terminal)
@@ -84,11 +88,14 @@ def test_print_to_printer_flow():
             mock_output_class.return_value = mock_output
             
             # Simulate Ctrl-P
-            key = Mock()
-            key.is_sequence = False
-            key.__str__ = lambda self: '\x10'  # Ctrl-P
+            key_event = KeyEvent(
+                key_type=KeyType.CTRL,
+                value='p',
+                raw='\x10',
+                is_ctrl=True
+            )
             
-            editor._handle_key(key)
+            editor._handle_key_event(key_event)
             
             # Verify print was called
             mock_output.print_to_printer.assert_called_once_with(
@@ -116,11 +123,14 @@ def test_save_to_ps_flow():
         mock_dialog_class.return_value = mock_dialog
         
         # Simulate Ctrl-P
-        key = Mock()
-        key.is_sequence = False
-        key.__str__ = lambda self: '\x10'  # Ctrl-P
+        key_event = KeyEvent(
+            key_type=KeyType.CTRL,
+            value='p',
+            raw='\x10',
+            is_ctrl=True
+        )
         
-        editor._handle_key(key)
+        editor._handle_key_event(key_event)
         
         # Should enter PS filename prompt mode
         assert editor.prompt_mode == 'ps_filename'
@@ -142,11 +152,15 @@ def test_ps_filename_prompt_save():
         mock_output_class.return_value = mock_output
         
         # Simulate Enter key in prompt
-        key = Mock()
-        key.is_sequence = True
-        key.code = 343  # Enter key code
+        key_event = KeyEvent(
+            key_type=KeyType.SPECIAL,
+            value='enter',
+            raw='\r',
+            is_sequence=True,
+            code=343
+        )
         
-        editor._handle_ps_filename_prompt(key)
+        editor._handle_ps_filename_prompt(key_event)
         
         # Verify save was called
         mock_output.save_to_file.assert_called_once_with(
@@ -168,12 +182,14 @@ def test_ps_filename_prompt_cancel():
     editor._pending_print_pages = [["Page 1"]]
     
     # Simulate ESC key
-    key = Mock()
-    key.__eq__ = lambda self, other: other == '\x1b'
-    key.is_sequence = False
-    key.code = None
+    key_event = KeyEvent(
+        key_type=KeyType.SPECIAL,
+        value='escape',
+        raw='\x1b',
+        is_sequence=False
+    )
     
-    editor._handle_ps_filename_prompt(key)
+    editor._handle_ps_filename_prompt(key_event)
     
     # Verify prompt cancelled
     assert editor.prompt_mode is None
@@ -193,11 +209,14 @@ def test_print_cancel():
         mock_dialog_class.return_value = mock_dialog
         
         # Simulate Ctrl-P
-        key = Mock()
-        key.is_sequence = False
-        key.__str__ = lambda self: '\x10'  # Ctrl-P
+        key_event = KeyEvent(
+            key_type=KeyType.CTRL,
+            value='p',
+            raw='\x10',
+            is_ctrl=True
+        )
         
-        editor._handle_key(key)
+        editor._handle_key_event(key_event)
         
         # Verify cancellation message
         assert "cancelled" in editor.status_message
@@ -223,11 +242,14 @@ def test_print_error_handling():
             mock_output_class.return_value = mock_output
             
             # Simulate Ctrl-P
-            key = Mock()
-            key.is_sequence = False
-            key.__str__ = lambda self: '\x10'  # Ctrl-P
+            key_event = KeyEvent(
+                key_type=KeyType.CTRL,
+                value='p',
+                raw='\x10',
+                is_ctrl=True
+            )
             
-            editor._handle_key(key)
+            editor._handle_key_event(key_event)
             
             # Verify error message
             assert "Print failed" in editor.status_message
@@ -247,11 +269,15 @@ def test_ps_save_error_handling():
         mock_output_class.return_value = mock_output
         
         # Simulate Enter key
-        key = Mock()
-        key.is_sequence = True
-        key.code = 343  # Enter key code
+        key_event = KeyEvent(
+            key_type=KeyType.SPECIAL,
+            value='enter',
+            raw='\r',
+            is_sequence=True,
+            code=343
+        )
         
-        editor._handle_ps_filename_prompt(key)
+        editor._handle_ps_filename_prompt(key_event)
         
         # Verify error message
         assert "Directory does not exist" in editor.status_message

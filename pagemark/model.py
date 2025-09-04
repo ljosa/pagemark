@@ -91,6 +91,48 @@ class TextModel:
             self.cursor_position.character_index = len(self.paragraphs[self.cursor_position.paragraph_index])
         self.view.render()
     
+    def _join_with_previous_paragraph(self):
+        """Join current paragraph with previous one, positioning cursor at join point.
+        
+        Returns:
+            True if join was performed, False if at document start
+        """
+        if self.cursor_position.paragraph_index == 0:
+            return False
+            
+        prev_idx = self.cursor_position.paragraph_index - 1
+        prev_para = self.paragraphs[prev_idx]
+        curr_para = self.paragraphs[self.cursor_position.paragraph_index]
+        
+        # Combine paragraphs
+        self.paragraphs[prev_idx] = prev_para + curr_para
+        del self.paragraphs[self.cursor_position.paragraph_index]
+        
+        # Move cursor to join point
+        self.cursor_position.paragraph_index = prev_idx
+        self.cursor_position.character_index = len(prev_para)
+        
+        return True
+    
+    def _join_with_next_paragraph(self):
+        """Join current paragraph with next one, keeping cursor position.
+        
+        Returns:
+            True if join was performed, False if at document end
+        """
+        if self.cursor_position.paragraph_index + 1 >= len(self.paragraphs):
+            return False
+            
+        para_idx = self.cursor_position.paragraph_index
+        curr_para = self.paragraphs[para_idx]
+        next_para = self.paragraphs[para_idx + 1]
+        
+        # Combine paragraphs
+        self.paragraphs[para_idx] = curr_para + next_para
+        del self.paragraphs[para_idx + 1]
+        
+        return True
+    
     def right_word(self):
         """Move cursor forward by one word (Emacs-style)."""
         para = self.paragraphs[self.cursor_position.paragraph_index]
@@ -165,17 +207,7 @@ class TextModel:
             self.cursor_position.character_index = pos
         elif self.cursor_position.paragraph_index > 0:
             # At start of paragraph, join with previous paragraph
-            prev_idx = self.cursor_position.paragraph_index - 1
-            prev_para = self.paragraphs[prev_idx]
-            curr_para = self.paragraphs[self.cursor_position.paragraph_index]
-            
-            # Combine paragraphs
-            self.paragraphs[prev_idx] = prev_para + curr_para
-            del self.paragraphs[self.cursor_position.paragraph_index]
-            
-            # Move cursor to join point
-            self.cursor_position.paragraph_index = prev_idx
-            self.cursor_position.character_index = len(prev_para)
+            self._join_with_previous_paragraph()
         
         self.view.render()
     
@@ -189,37 +221,93 @@ class TextModel:
             self.paragraphs[self.cursor_position.paragraph_index] = para[:pos] + para[pos+1:]
         elif self.cursor_position.paragraph_index + 1 < len(self.paragraphs):
             # At end of paragraph, join with next paragraph
-            next_para = self.paragraphs[self.cursor_position.paragraph_index + 1]
-            self.paragraphs[self.cursor_position.paragraph_index] = para + next_para
-            del self.paragraphs[self.cursor_position.paragraph_index + 1]
+            self._join_with_next_paragraph()
         # else: at end of document, do nothing
         
         self.view.render()
     
+    def _get_visual_line_info(self):
+        """Get information about the current visual line.
+        
+        Returns:
+            Tuple of (line_index, para_lines, para_counts)
+        """
+        from .view import render_paragraph
+        
+        para_idx = self.cursor_position.paragraph_index
+        char_idx = self.cursor_position.character_index
+        para = self.paragraphs[para_idx]
+        
+        # Get wrapped lines for current paragraph
+        para_lines, para_counts = render_paragraph(para, self.view.num_columns)
+        
+        # Find which visual line we're on within the paragraph
+        # Use simple rule: we're on the line whose cumulative count we haven't exceeded
+        line_index = len(para_counts) - 1  # Default to last line
+        if para_counts:
+            for i, count in enumerate(para_counts):
+                if char_idx <= count:
+                    line_index = i
+                    break
+                
+        return line_index, para_lines, para_counts
+    
     def move_beginning_of_line(self):
         """Move cursor to beginning of visual line (Emacs-style Ctrl-A)."""
-        self.cursor_position.character_index = 0
+        line_index, _, para_counts = self._get_visual_line_info()
+        
+        # Calculate the start position of this visual line
+        if line_index == 0:
+            self.cursor_position.character_index = 0
+        else:
+            self.cursor_position.character_index = para_counts[line_index - 1]
+        
         self.view.render()
     
     def move_end_of_line(self):
         """Move cursor to end of visual line (Emacs-style Ctrl-E)."""
-        para = self.paragraphs[self.cursor_position.paragraph_index]
-        self.cursor_position.character_index = len(para)
+        line_index, _, para_counts = self._get_visual_line_info()
+        
+        para_idx = self.cursor_position.paragraph_index
+        para = self.paragraphs[para_idx]
+        
+        # Move to the end of this visual line
+        if para_counts:
+            if line_index == len(para_counts) - 1:
+                # Last visual line - go to actual end of paragraph
+                self.cursor_position.character_index = len(para)
+            else:
+                # Not the last line - go to last char of this visual line
+                # para_counts[line_index] is the first char of the NEXT line
+                # So para_counts[line_index] - 1 is the last char of THIS line
+                self.cursor_position.character_index = para_counts[line_index] - 1
+        else:
+            # Empty paragraph
+            self.cursor_position.character_index = 0
+        
         self.view.render()
     
     def kill_line(self):
         """Delete from cursor to end of visual line (Emacs-style Ctrl-K)."""
-        para = self.paragraphs[self.cursor_position.paragraph_index]
-        pos = self.cursor_position.character_index
+        line_index, _, para_counts = self._get_visual_line_info()
         
-        if pos < len(para):
-            # Delete from cursor to end of line
-            self.paragraphs[self.cursor_position.paragraph_index] = para[:pos]
-        elif self.cursor_position.paragraph_index + 1 < len(self.paragraphs):
-            # At end of line, join with next paragraph (delete newline)
-            next_para = self.paragraphs[self.cursor_position.paragraph_index + 1]
-            self.paragraphs[self.cursor_position.paragraph_index] = para + next_para
-            del self.paragraphs[self.cursor_position.paragraph_index + 1]
-        # else: at end of document, do nothing
+        para_idx = self.cursor_position.paragraph_index
+        char_idx = self.cursor_position.character_index
+        para = self.paragraphs[para_idx]
+        
+        # Find the end position of this visual line
+        if para_counts:
+            visual_line_end = para_counts[line_index]
+        else:
+            visual_line_end = 0
+        
+        # Kill from current position to end of visual line
+        if char_idx < visual_line_end:
+            # Delete from cursor to end of visual line
+            self.paragraphs[para_idx] = para[:char_idx] + para[visual_line_end:]
+        elif char_idx == len(para) and para_idx + 1 < len(self.paragraphs):
+            # At end of paragraph - join with next paragraph
+            self._join_with_next_paragraph()
+        # else: cursor at end of visual line but not end of paragraph, or at end of document - do nothing
         
         self.view.render()

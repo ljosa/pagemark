@@ -1,5 +1,6 @@
 from typing import override
 from .model import TextView, CursorPosition
+from .constants import EditorConstants
 
 def _break_long_word(word: str, num_columns: int, lines: list[str], 
                      cumulative_counts: list[int], char_count: int) -> tuple[str, int]:
@@ -70,7 +71,7 @@ class TerminalTextView(TextView):
     visual_cursor_y: int = 0
     visual_cursor_x: int = 0  # Store visual horizontal position
     desired_x: int = 0  # Desired X position for up/down navigation
-    LINES_PER_PAGE: int = 54  # Standard lines per printed page
+    LINES_PER_PAGE: int = EditorConstants.LINES_PER_PAGE  # Standard lines per printed page
 
     def _create_page_break_line(self, page_num: int) -> str:
         """Create a centered page break line with page number."""

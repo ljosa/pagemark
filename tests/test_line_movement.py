@@ -9,6 +9,7 @@ def create_test_model(paragraphs):
     """Create a test model with given paragraphs."""
     view = Mock()
     view.render = Mock()
+    view.num_columns = 65  # Default editor width
     return TextModel(view, paragraphs=paragraphs)
 
 
@@ -85,13 +86,28 @@ def test_line_movement_multiple_paragraphs():
 
 
 def test_line_movement_with_long_line():
-    """Test line movement with long text."""
+    """Test line movement with long text that wraps."""
     long_text = "a" * 100
     model = create_test_model([long_text])
-    model.cursor_position = CursorPosition(0, 50)  # Middle of long line
+    model.cursor_position = CursorPosition(0, 50)  # Middle of first visual line
     
+    # Move to end of visual line (should be at position 64, not 65 or 100)
+    # Position 64 is the last 'a' on the first visual line
+    # Position 65 would be the first 'a' of the second visual line
     model.move_end_of_line()
-    assert model.cursor_position.character_index == 100
+    assert model.cursor_position.character_index == 64  # Last char of first visual line
     
+    # Move to beginning of visual line
     model.move_beginning_of_line()
     assert model.cursor_position.character_index == 0
+    
+    # Test on second visual line (past the boundary)
+    model.cursor_position = CursorPosition(0, 66)  # Definitely on second visual line
+    
+    # Move to end of second visual line first
+    model.move_end_of_line()
+    assert model.cursor_position.character_index == 100  # End of paragraph
+    
+    # Move to beginning of second visual line
+    model.move_beginning_of_line()
+    assert model.cursor_position.character_index == 65  # Start of second visual line

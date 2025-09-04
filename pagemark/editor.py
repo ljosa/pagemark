@@ -12,6 +12,9 @@ from .model import TextModel
 from .view import TerminalTextView
 from .print_dialog import PrintDialog, PrintAction
 from .print_output import PrintOutput
+from .keyboard import KeyboardHandler, KeyEvent, KeyType
+from .constants import EditorConstants
+from .commands import CommandRegistry
 
 
 class Editor:
@@ -20,13 +23,15 @@ class Editor:
     def __init__(self):
         """Initialize the editor components."""
         self.terminal = TerminalInterface()
+        self.keyboard = KeyboardHandler(self.terminal)
         self.view = TerminalTextView()
-        # Fixed width of 65 characters for the view
-        self.VIEW_WIDTH = 65
+        # Fixed width for the view from constants
+        self.VIEW_WIDTH = EditorConstants.DOCUMENT_WIDTH
         # Initialize view dimensions early
         self.view.num_rows = self.terminal.height
         self.view.num_columns = self.VIEW_WIDTH
         self.model = TextModel(self.view, paragraphs=[""])
+        self.command_registry = CommandRegistry()  # Command pattern for key handling
         self.running = False
         self.error_mode = False  # True when terminal is too narrow
         # Create pipe for resize signaling
@@ -42,7 +47,7 @@ class Editor:
         """Handle terminal resize signal."""
         del signum, frame # Unused
         # Write to pipe to wake up select()
-        os.write(self._resize_pipe_w, b'R')
+        os.write(self._resize_pipe_w, EditorConstants.RESIZE_PIPE_MARKER)
 
     def run(self):
         """Run the main editor loop."""
@@ -76,7 +81,7 @@ class Editor:
                         self.view.num_rows = self.terminal.height
 
                         # Check if terminal is wide enough
-                        if self.terminal.width < self.VIEW_WIDTH:
+                        if self.terminal.width < EditorConstants.MIN_TERMINAL_WIDTH:
                             self.error_mode = True
                             self._draw_error()
                         else:
@@ -106,10 +111,10 @@ class Editor:
                             need_draw = True
                     elif 0 in ready:
                         # Handle input (non-blocking since select says it's ready)
-                        key = self.terminal.get_key(timeout=0)
-                        if key:
+                        key_event = self.keyboard.get_key_event(timeout=0)
+                        if key_event:
                             # Process keys
-                            self._handle_key(key)
+                            self._handle_key_event(key_event)
                             need_draw = True
                 
                 # Restore terminal settings before exiting cbreak
@@ -158,149 +163,54 @@ class Editor:
     def _draw_error(self):
         """Draw error message when terminal is too narrow."""
         self.terminal.draw_error_message(
-            f"Terminal too narrow! Need at least {self.VIEW_WIDTH} columns.",
-            f"Current width: {self.terminal.width} columns."
+            EditorConstants.TERMINAL_TOO_NARROW_MESSAGE.format(EditorConstants.MIN_TERMINAL_WIDTH),
+            EditorConstants.CURRENT_WIDTH_MESSAGE.format(self.terminal.width)
         )
 
-    def _handle_key(self, key):
-        """Handle a keypress event.
+    def _handle_key_event(self, key_event: KeyEvent):
+        """Handle a keyboard event.
 
         Args:
-            key: blessed.keyboard.Keystroke object
+            key_event: KeyEvent object with parsed key information
         """
         # Clear status message on any keypress (except in prompt mode)
         if self.status_message and not self.prompt_mode:
             self.status_message = None
 
         # Handle prompt modes first
-        if self.prompt_mode in ('save_filename', 'save_filename_quit'):
-            self._handle_filename_prompt(key)
-            return
-        elif self.prompt_mode == 'quit_confirm':
-            self._handle_quit_confirm(key)
-            return
-        elif self.prompt_mode == 'ps_filename':
-            self._handle_ps_filename_prompt(key)
-            return
-
-        # Check for quit command (Ctrl-Q)
-        if (hasattr(key, 'is_sequence') and not key.is_sequence and str(key) == '\x11') or key == '\x11':  # Ctrl-Q
-            if self.modified:
-                self.prompt_mode = 'quit_confirm'
-            else:
-                self.running = False
-            return
-
-        # Check for save command (Ctrl-S)
-        if (hasattr(key, 'is_sequence') and not key.is_sequence and str(key) == '\x13') or key == '\x13':  # Ctrl-S
-            self._handle_save()
-            return
-        
-        # Check for print command (Ctrl-P)
-        if (hasattr(key, 'is_sequence') and not key.is_sequence and str(key) == '\x10') or key == '\x10':  # Ctrl-P
-            self._handle_print()
+        if self._handle_prompt_mode(key_event):
             return
 
         # Don't process other keys if in error mode
         if self.error_mode:
             return
 
-        key_str = str(key)
-        
-        # Check for complete Alt sequences in one go (blessed should give us the full sequence)
-        if key_str in ('\x1b[1;3D', '\x1bb', '\x1b[D', '\x1bOD'):
-            # Alt-left
-            self.model.left_word()
-            self.view.update_desired_x()
+        # Handle ESC key by itself
+        if key_event.key_type == KeyType.SPECIAL and key_event.value == 'escape':
+            # Just ESC - could be used for canceling operations
             return
-        elif key_str in ('\x1b[1;3C', '\x1bf', '\x1b[C', '\x1bOC'):
-            # Alt-right  
-            self.model.right_word()
-            self.view.update_desired_x()
-            return
-        elif key_str in ('\x1b\x7f', '\x1b\x08'):
-            # Alt-backspace
-            self.model.backward_kill_word()
+
+        # Try to execute command from registry
+        was_modified = self.command_registry.execute(self, key_event)
+        if was_modified:
             self.modified = True
-            self.view.update_desired_x()
-            return
+    
+    def _handle_prompt_mode(self, key_event: KeyEvent) -> bool:
+        """Handle input in prompt mode.
         
-        # Handle ESC key for terminals that send Alt as ESC + key separately
-        if key_str == '\x1b':
-            # Check next key immediately with very short timeout
-            next_key = self.terminal.get_key(timeout=0.01)  # 10ms timeout
-            if next_key:
-                next_str = str(next_key)
-                # Check for Alt combinations
-                if next_str == 'b' or (next_key.is_sequence and next_key.code == self.terminal.term.KEY_LEFT):
-                    # Alt-left (Alt-b or ESC + left arrow)
-                    self.model.left_word()
-                    self.view.update_desired_x()
-                    return
-                elif next_str == 'f' or (next_key.is_sequence and next_key.code == self.terminal.term.KEY_RIGHT):
-                    # Alt-right (Alt-f or ESC + right arrow)
-                    self.model.right_word()
-                    self.view.update_desired_x()
-                    return
-                elif next_str in ('\x7f', '\x08') or (next_key.is_sequence and next_key.code in (self.terminal.term.KEY_BACKSPACE, 263)):
-                    # Alt-backspace (ESC + backspace/delete)
-                    self.model.backward_kill_word()
-                    self.modified = True
-                    self.view.update_desired_x()
-                    return
-            # Just ESC by itself
-            return
-        
-        # Handle Ctrl shortcuts first (not sequences)
-        if str(key) == '\x04':  # Ctrl-D (delete-char)
-            self.model.delete_char()
-            self.modified = True
-            self.view.update_desired_x()
-            return
-        elif str(key) == '\x01':  # Ctrl-A (move-beginning-of-line)
-            self.model.move_beginning_of_line()
-            self.view.update_desired_x()
-            return
-        elif str(key) == '\x05':  # Ctrl-E (move-end-of-line)
-            self.model.move_end_of_line()
-            self.view.update_desired_x()
-            return
-        elif str(key) == '\x0b':  # Ctrl-K (kill-line)
-            self.model.kill_line()
-            self.modified = True
-            self.view.update_desired_x()
-            return
-        
-        
-        # Handle special keys
-        if key.is_sequence:
-            if key.code == self.terminal.term.KEY_LEFT:
-                self.model.left_char()
-                self.view.update_desired_x()  # Reset desired X on horizontal movement
-            elif key.code == self.terminal.term.KEY_RIGHT:
-                self.model.right_char()
-                self.view.update_desired_x()  # Reset desired X on horizontal movement
-            elif key.code == self.terminal.term.KEY_UP:
-                self.view.move_cursor_up()
-            elif key.code == self.terminal.term.KEY_DOWN:
-                self.view.move_cursor_down()
-            elif key.code == self.terminal.term.KEY_BACKSPACE or key.code == 263:
-                self._handle_backspace()
-                self.modified = True
-                self.view.update_desired_x()  # Reset desired X after editing
-            elif key.code == self.terminal.term.KEY_ENTER:
-                self.model.insert_text('\n')
-                self.modified = True
-                self.view.update_desired_x()  # Reset desired X after editing
-            # Ignore any other sequences to prevent partial ESC sequences from being inserted
-        else:
-            # Regular character - insert it
-            char = str(key)
-            # Filter out control characters and escape sequences
-            if not char.startswith('\x1b') and (ord(char[0]) >= 32 or char == '\t'):
-                self.model.insert_text(char)
-                self.modified = True
-                self.view.update_desired_x()  # Reset desired X after typing
+        Returns:
+            True if in prompt mode and event was handled
+        """
+        if self.prompt_mode in ('save_filename', 'save_filename_quit'):
+            self._handle_filename_prompt(key_event)
+            return True
+        elif self.prompt_mode == 'quit_confirm':
+            self._handle_quit_confirm(key_event)
+            return True
+        elif self.prompt_mode == 'ps_filename':
+            self._handle_ps_filename_prompt(key_event)
+            return True
+        return False
 
     def _handle_backspace(self):
         """Handle backspace key - delete character before cursor."""
@@ -314,17 +224,7 @@ class Editor:
             self.view.render()
         elif self.model.cursor_position.paragraph_index > 0:
             # Join with previous paragraph
-            prev_idx = self.model.cursor_position.paragraph_index - 1
-            prev_para = self.model.paragraphs[prev_idx]
-            curr_para = self.model.paragraphs[self.model.cursor_position.paragraph_index]
-
-            # Combine paragraphs
-            self.model.paragraphs[prev_idx] = prev_para + curr_para
-            del self.model.paragraphs[self.model.cursor_position.paragraph_index]
-
-            # Move cursor to join point
-            self.model.cursor_position.paragraph_index = prev_idx
-            self.model.cursor_position.character_index = len(prev_para)
+            self.model._join_with_previous_paragraph()
             self.view.render()
 
     def load_file(self, filename: str):
@@ -424,38 +324,14 @@ class Editor:
             self.prompt_mode = 'save_filename'
             self.prompt_input = ""
     
-    def _handle_filename_prompt(self, key):
+    def _handle_filename_prompt(self, key_event):
         """Handle keypress during filename prompt."""
-        if key == '\x1b' or key == '\x07':  # ESC or Ctrl-G
+        if (key_event.key_type == KeyType.SPECIAL and key_event.value == 'escape') or \
+           (key_event.key_type == KeyType.CTRL and key_event.value == 'g'):  # ESC or Ctrl-G
             # Cancel prompt
             self.prompt_mode = None
             self.prompt_input = ""
-    
-    def _handle_ps_filename_prompt(self, key):
-        """Handle keypress during PS filename prompt."""
-        if key == '\x1b' or key == '\x07':  # ESC or Ctrl-G
-            # Cancel prompt
-            self.prompt_mode = None
-            self.prompt_input = ""
-            self._pending_print_pages = None
-            self.status_message = "PS save cancelled"
-        elif key.code == self.terminal.term.KEY_ENTER:
-            # Save with entered filename
-            if self.prompt_input and hasattr(self, '_pending_print_pages'):
-                self._save_to_ps(self._pending_print_pages, self.prompt_input)
-                self._pending_print_pages = None
-            self.prompt_mode = None
-            self.prompt_input = ""
-        elif key.code == self.terminal.term.KEY_BACKSPACE or key.code == 263:
-            # Delete character from prompt
-            if self.prompt_input:
-                self.prompt_input = self.prompt_input[:-1]
-        elif not key.is_sequence:
-            # Add character to prompt
-            char = str(key)
-            if ord(char) >= 32:
-                self.prompt_input += char
-        elif key.code == self.terminal.term.KEY_ENTER:
+        elif key_event.key_type == KeyType.SPECIAL and key_event.value == 'enter':
             # Save with entered filename
             if self.prompt_input:
                 if self.save_file(self.prompt_input):
@@ -465,34 +341,61 @@ class Editor:
                         self.running = False
                 self.prompt_mode = None
                 self.prompt_input = ""
-        elif key.code == self.terminal.term.KEY_BACKSPACE or key.code == 263:
+        elif key_event.key_type == KeyType.SPECIAL and key_event.value == 'backspace':
             # Delete character from prompt
             if self.prompt_input:
                 self.prompt_input = self.prompt_input[:-1]
-        elif not key.is_sequence:
+        elif key_event.key_type == KeyType.REGULAR:
             # Add character to prompt
-            char = str(key)
+            char = key_event.value
             if ord(char) >= 32:
                 self.prompt_input += char
     
-    def _handle_quit_confirm(self, key):
+    def _handle_ps_filename_prompt(self, key_event):
+        """Handle keypress during PS filename prompt."""
+        if (key_event.key_type == KeyType.SPECIAL and key_event.value == 'escape') or \
+           (key_event.key_type == KeyType.CTRL and key_event.value == 'g'):  # ESC or Ctrl-G
+            # Cancel prompt
+            self.prompt_mode = None
+            self.prompt_input = ""
+            self._pending_print_pages = None
+            self.status_message = "PS save cancelled"
+        elif key_event.key_type == KeyType.SPECIAL and key_event.value == 'enter':
+            # Save with entered filename
+            if self.prompt_input and hasattr(self, '_pending_print_pages'):
+                self._save_to_ps(self._pending_print_pages, self.prompt_input)
+                self._pending_print_pages = None
+            self.prompt_mode = None
+            self.prompt_input = ""
+        elif key_event.key_type == KeyType.SPECIAL and key_event.value == 'backspace':
+            # Delete character from prompt
+            if self.prompt_input:
+                self.prompt_input = self.prompt_input[:-1]
+        elif key_event.key_type == KeyType.REGULAR:
+            # Add character to prompt
+            char = key_event.value
+            if ord(char) >= 32:
+                self.prompt_input += char
+    
+    def _handle_quit_confirm(self, key_event):
         """Handle keypress during quit confirmation."""
-        char = str(key).lower()
-        if char == 'y':
-            # Save and quit
-            if self.filename:
-                self.save_file(self.filename)
+        if key_event.key_type == KeyType.REGULAR:
+            char = key_event.value.lower()
+            if char == 'y':
+                # Save and quit
+                if self.filename:
+                    self.save_file(self.filename)
+                    self.running = False
+                else:
+                    # Need filename first
+                    self.prompt_mode = 'save_filename_quit'
+                    self.prompt_input = ""
+            elif char == 'n':
+                # Quit without saving
                 self.running = False
             else:
-                # Need filename first
-                self.prompt_mode = 'save_filename_quit'
-                self.prompt_input = ""
-        elif char == 'n':
-            # Quit without saving
-            self.running = False
-        else:
-            # Cancel quit
-            self.prompt_mode = None
+                # Cancel quit
+                self.prompt_mode = None
     
     def _handle_print(self):
         """Handle Ctrl-P print command."""

@@ -9,6 +9,7 @@ def create_test_model(paragraphs):
     """Create a test model with given paragraphs."""
     view = Mock()
     view.render = Mock()
+    view.num_columns = 65  # Default editor width
     return TextModel(view, paragraphs=paragraphs)
 
 
