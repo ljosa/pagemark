@@ -138,13 +138,22 @@ class KeyboardHandler:
         key_str = str(key)
         
         # Check if this is a complete Alt sequence (ESC + letter)
-        if len(key_str) == 2 and key_str[0] == '\x1b':
-            # This is likely Alt+letter
-            letter = key_str[1]
-            if letter.isalpha():
+        if len(key_str) >= 2 and key_str[0] == '\x1b':
+            # Check against known sequences first
+            if key_str in self.ALT_SEQUENCES:
+                base_key, is_alt = self.ALT_SEQUENCES[key_str]
                 return KeyEvent(
                     key_type=KeyType.ALT,
-                    value=letter.lower(),
+                    value=base_key,
+                    raw=key_str,
+                    is_alt=is_alt,
+                    is_sequence=False
+                )
+            # For ESC + single letter not in ALT_SEQUENCES
+            elif len(key_str) == 2 and key_str[1].isalpha():
+                return KeyEvent(
+                    key_type=KeyType.ALT,
+                    value=key_str[1].lower(),
                     raw=key_str,
                     is_alt=True,
                     is_sequence=False
