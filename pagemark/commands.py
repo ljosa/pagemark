@@ -172,6 +172,13 @@ class WordCountCommand(SystemCommand):
         editor.status_message = f"{word_count} words"
 
 
+class CenterLineCommand(EditCommand):
+    def _edit(self, editor, key_event):
+        success = editor.model.center_line()
+        if not success:
+            editor.status_message = "Cannot center multi-line paragraph"
+
+
 class CommandRegistry:
     """Registry for mapping key combinations to commands."""
     
@@ -203,6 +210,7 @@ class CommandRegistry:
         self.register((KeyType.CTRL, 'k'), KillLineCommand())
         self.register((KeyType.ALT, 'backspace'), KillWordCommand())
         self.register((KeyType.SPECIAL, 'enter'), InsertNewlineCommand())
+        self.register((KeyType.CTRL, '^'), CenterLineCommand())
         
         # System commands
         self.register((KeyType.CTRL, 'q'), QuitCommand())

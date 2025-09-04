@@ -197,6 +197,7 @@ class Editor:
             "EDITING",
             "  Ctrl-D    Delete char",
             "  Ctrl-K    Kill line",
+            "  Ctrl-^    Center line",
             "  Alt-Bksp  Delete word"
         ]
         

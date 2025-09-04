@@ -75,6 +75,7 @@ class KeyboardHandler:
         '\x18': 'x',  # Ctrl+X
         '\x19': 'y',  # Ctrl+Y
         '\x1a': 'z',  # Ctrl+Z
+        '\x1e': '^',  # Ctrl+^ (RS - Record Separator)
     }
     
     def __init__(self, terminal_interface):

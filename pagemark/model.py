@@ -104,6 +104,50 @@ class TextModel:
             word_count += len(words)
         return word_count
     
+    def center_line(self) -> bool:
+        """Center the current paragraph if it fits on one line.
+        
+        Returns:
+            True if centering was successful, False if paragraph is multi-line
+        """
+        from .constants import EditorConstants
+        
+        para_idx = self.cursor_position.paragraph_index
+        paragraph = self.paragraphs[para_idx]
+        
+        # Strip existing leading/trailing spaces to get true content
+        stripped = paragraph.strip()
+        
+        # Don't center empty lines
+        if not stripped:
+            self.paragraphs[para_idx] = ""
+            self.cursor_position.character_index = 0
+            self.view.render()
+            return True
+        
+        # Check if paragraph would wrap (multi-line) or is at max width
+        if len(stripped) >= EditorConstants.DOCUMENT_WIDTH:
+            return False
+        
+        # Calculate centering
+        spaces_needed = (EditorConstants.DOCUMENT_WIDTH - len(stripped)) // 2
+        centered = ' ' * spaces_needed + stripped
+        
+        # Update the paragraph
+        self.paragraphs[para_idx] = centered
+        
+        # Adjust cursor position to account for added spaces
+        # If cursor was at the beginning, keep it at the beginning of the centered text
+        if self.cursor_position.character_index <= len(paragraph) - len(paragraph.lstrip()):
+            self.cursor_position.character_index = spaces_needed
+        else:
+            # Adjust cursor position by the difference in leading spaces
+            old_leading = len(paragraph) - len(paragraph.lstrip())
+            self.cursor_position.character_index = self.cursor_position.character_index - old_leading + spaces_needed
+        
+        self.view.render()
+        return True
+    
     def _join_with_previous_paragraph(self):
         """Join current paragraph with previous one, positioning cursor at join point.
         
