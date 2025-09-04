@@ -114,6 +114,78 @@ class TerminalTextView(TextView):
         return doc_line
 
     @override
+    def get_selection_ranges(self):
+        """Calculate selection ranges for visible lines.
+        
+        Returns:
+            List of tuples (start_col, end_col) for each visible line, or None if no selection.
+        """
+        if self.model.selection_start is None or self.model.selection_end is None:
+            return None
+        
+        # Get normalized selection bounds
+        start = self.model.selection_start
+        end = self.model.selection_end
+        if (start.paragraph_index > end.paragraph_index or 
+            (start.paragraph_index == end.paragraph_index and 
+             start.character_index > end.character_index)):
+            start, end = end, start
+        
+        selection_ranges = []
+        current_para_idx = self.start_paragraph_index
+        current_line_offset = self.first_paragraph_line_offset
+        
+        for line_idx, line in enumerate(self.lines):
+            # Skip page break lines
+            if line == "-" * 76:
+                selection_ranges.append(None)
+                continue
+            
+            # Check if this line is within selection
+            if current_para_idx < start.paragraph_index or current_para_idx > end.paragraph_index:
+                selection_ranges.append(None)
+            else:
+                # This paragraph is at least partially selected
+                para = self.model.paragraphs[current_para_idx]
+                _, para_counts = render_paragraph(para, self.num_columns)
+                
+                # Calculate character range for this visual line
+                if current_line_offset == 0:
+                    line_start_char = 0
+                else:
+                    line_start_char = para_counts[current_line_offset - 1]
+                
+                if current_line_offset < len(para_counts) - 1:
+                    line_end_char = para_counts[current_line_offset]
+                else:
+                    line_end_char = len(para)
+                
+                # Calculate selection within this line
+                sel_start = 0
+                sel_end = len(line)
+                
+                if current_para_idx == start.paragraph_index:
+                    if start.character_index > line_start_char:
+                        sel_start = max(0, start.character_index - line_start_char)
+                
+                if current_para_idx == end.paragraph_index:
+                    if end.character_index < line_end_char:
+                        sel_end = min(len(line), end.character_index - line_start_char)
+                
+                if sel_start < sel_end:
+                    selection_ranges.append((sel_start, sel_end))
+                else:
+                    selection_ranges.append(None)
+            
+            # Move to next line
+            current_line_offset += 1
+            para_line_count = self._get_paragraph_line_count(current_para_idx)
+            if current_line_offset >= para_line_count:
+                current_para_idx += 1
+                current_line_offset = 0
+        
+        return selection_ranges
+    
     def render(self):
         paragraph_index = self.start_paragraph_index
         # First paragraph

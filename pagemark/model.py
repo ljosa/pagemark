@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from typing import Optional
 
 @dataclass
 class CursorPosition:
@@ -47,6 +48,9 @@ class TextModel:
         self.view._model = self
         self.paragraphs = paragraphs
         self.cursor_position = CursorPosition()
+        self.selection_start = None  # CursorPosition when selection started
+        self.selection_end = None    # Current end of selection
+        self.clipboard = ""          # Internal clipboard for cut/copy/paste
 
     def insert_text(self, text: str, position: CursorPosition | None = None):
         if position is None:
@@ -246,6 +250,8 @@ class TextModel:
         
         self.view.render()
         return True
+
+ 
     
     def _join_with_previous_paragraph(self):
         """Join current paragraph with previous one, positioning cursor at join point.
@@ -574,6 +580,119 @@ class TextModel:
         
         self.view.render()
     
+    def start_selection(self):
+        """Start a new selection at current cursor position."""
+        self.selection_start = CursorPosition(
+            self.cursor_position.paragraph_index,
+            self.cursor_position.character_index
+        )
+        self.selection_end = CursorPosition(
+            self.cursor_position.paragraph_index,
+            self.cursor_position.character_index
+        )
+    
+    def clear_selection(self):
+        """Clear the current selection."""
+        self.selection_start = None
+        self.selection_end = None
+    
+    def update_selection_end(self):
+        """Update the end of selection to current cursor position."""
+        if self.selection_start is not None:
+            self.selection_end = CursorPosition(
+                self.cursor_position.paragraph_index,
+                self.cursor_position.character_index
+            )
+    
+    def get_selected_text(self) -> str:
+        """Get the currently selected text."""
+        if self.selection_start is None or self.selection_end is None:
+            return ""
+        
+        # Ensure start comes before end
+        start = self.selection_start
+        end = self.selection_end
+        if (start.paragraph_index > end.paragraph_index or 
+            (start.paragraph_index == end.paragraph_index and 
+             start.character_index > end.character_index)):
+            start, end = end, start
+        
+        # Single paragraph selection
+        if start.paragraph_index == end.paragraph_index:
+            para = self.paragraphs[start.paragraph_index]
+            return para[start.character_index:end.character_index]
+        
+        # Multi-paragraph selection
+        result = []
+        for i in range(start.paragraph_index, end.paragraph_index + 1):
+            para = self.paragraphs[i]
+            if i == start.paragraph_index:
+                result.append(para[start.character_index:])
+            elif i == end.paragraph_index:
+                result.append(para[:end.character_index])
+            else:
+                result.append(para)
+        return '\n'.join(result)
+    
+    def delete_selection(self):
+        """Delete the currently selected text."""
+        if self.selection_start is None or self.selection_end is None:
+            return
+        
+        # Ensure start comes before end
+        start = self.selection_start
+        end = self.selection_end
+        if (start.paragraph_index > end.paragraph_index or 
+            (start.paragraph_index == end.paragraph_index and 
+             start.character_index > end.character_index)):
+            start, end = end, start
+        
+        # Single paragraph deletion
+        if start.paragraph_index == end.paragraph_index:
+            para = self.paragraphs[start.paragraph_index]
+            self.paragraphs[start.paragraph_index] = (
+                para[:start.character_index] + para[end.character_index:]
+            )
+            self.cursor_position = CursorPosition(start.paragraph_index, start.character_index)
+        else:
+            # Multi-paragraph deletion
+            first_para = self.paragraphs[start.paragraph_index][:start.character_index]
+            last_para = self.paragraphs[end.paragraph_index][end.character_index:]
+            
+            # Combine first and last parts
+            self.paragraphs[start.paragraph_index] = first_para + last_para
+            
+            # Delete intermediate paragraphs
+            for _ in range(end.paragraph_index - start.paragraph_index):
+                del self.paragraphs[start.paragraph_index + 1]
+            
+            self.cursor_position = CursorPosition(start.paragraph_index, start.character_index)
+        
+        self.clear_selection()
+        self.view.render()
+    
+    def copy_selection(self):
+        """Copy selected text to clipboard."""
+        selected = self.get_selected_text()
+        if selected:
+            self.clipboard = selected
+            return True
+        return False
+    
+    def cut_selection(self):
+        """Cut selected text to clipboard."""
+        if self.copy_selection():
+            self.delete_selection()
+            return True
+        return False
+    
+    def paste(self):
+        """Paste clipboard at cursor position, replacing any selection."""
+        if self.selection_start is not None:
+            self.delete_selection()
+        if self.clipboard:
+            self.insert_text(self.clipboard)
+    
     def kill_line(self):
         """Delete from cursor to end of visual line (Emacs-style Ctrl-K)."""
         line_index, _, para_counts = self._get_visual_line_info()
@@ -598,3 +717,22 @@ class TextModel:
         # else: cursor at end of visual line but not end of paragraph, or at end of document - do nothing
         
         self.view.render()
+
+
+class DocumentModel:
+    """Lightweight model for document-level operations.
+
+    This shim exists to support tests that import `DocumentModel` directly
+    without requiring a view. It provides a `paragraphs` list and the
+    `count_words` method consistent with `TextModel`.
+    """
+
+    def __init__(self, paragraphs: Optional[list[str]] = None):
+        self.paragraphs = paragraphs if paragraphs is not None else [""]
+
+    def count_words(self) -> int:
+        word_count = 0
+        for paragraph in self.paragraphs:
+            words = paragraph.split()
+            word_count += len(words)
+        return word_count

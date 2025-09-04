@@ -31,6 +31,8 @@ class MovementCommand(EditorCommand):
     
     def execute(self, editor: 'Editor', key_event: 'KeyEvent') -> bool:
         """Movement commands don't modify the document."""
+        # Clear selection on non-shift movement
+        editor.model.clear_selection()
         self._move(editor, key_event)
         editor.view.update_desired_x()
         return False
@@ -131,6 +133,9 @@ class InsertTextCommand(EditCommand):
         char = key_event.value
         # Filter out control characters
         if ord(char[0]) >= 32 or char == '\t':
+            # Delete any selection first
+            if editor.model.selection_start is not None:
+                editor.model.delete_selection()
             editor.model.insert_text(char)
 
 
@@ -209,6 +214,78 @@ class DowncaseWordCommand(EditCommand):
         editor.model.downcase_word()
 
 
+class SelectionMovementCommand(MovementCommand):
+    """Base class for shift+arrow selection movements.
+
+    Important: Do NOT clear selection on shift-modified movement. Preserve
+    the original anchor and extend/shrink the selection as the cursor moves.
+    """
+
+    def execute(self, editor: 'Editor', key_event: 'KeyEvent') -> bool:
+        # Start selection if not already started
+        if editor.model.selection_start is None:
+            editor.model.start_selection()
+
+        # Perform the movement without clearing selection
+        self._selection_move(editor, key_event)
+
+        # Update selection end to current cursor and draw
+        editor.model.update_selection_end()
+        editor.view.update_desired_x()
+        editor.view.render()
+        return False
+
+    def _selection_move(self, editor, key_event):
+        """Override this to implement specific movement."""
+        pass
+
+    # Implement abstract method to satisfy MovementCommand, though
+    # SelectionMovementCommand overrides execute and doesn't use this path.
+    def _move(self, editor, key_event):
+        self._selection_move(editor, key_event)
+
+
+class ShiftLeftCommand(SelectionMovementCommand):
+    def _selection_move(self, editor, key_event):
+        editor.model.left_char()
+
+
+class ShiftRightCommand(SelectionMovementCommand):
+    def _selection_move(self, editor, key_event):
+        editor.model.right_char()
+
+
+class ShiftUpCommand(SelectionMovementCommand):
+    def _selection_move(self, editor, key_event):
+        editor.view.move_cursor_up()
+
+
+class ShiftDownCommand(SelectionMovementCommand):
+    def _selection_move(self, editor, key_event):
+        editor.view.move_cursor_down()
+
+
+class CutCommand(EditCommand):
+    def _edit(self, editor, key_event):
+        if editor.model.cut_selection():
+            editor.status_message = "Selection cut"
+        else:
+            editor.status_message = "No selection"
+
+
+class CopyCommand(SystemCommand):
+    def _execute_system(self, editor, key_event):
+        if editor.model.copy_selection():
+            editor.status_message = "Selection copied"
+        else:
+            editor.status_message = "No selection"
+
+
+class PasteCommand(EditCommand):
+    def _edit(self, editor, key_event):
+        editor.model.paste()
+
+
 class CommandRegistry:
     """Registry for mapping key combinations to commands."""
     
@@ -223,6 +300,12 @@ class CommandRegistry:
         self.register((KeyType.SPECIAL, 'right'), RightCharCommand())
         self.register((KeyType.SPECIAL, 'up'), UpLineCommand())
         self.register((KeyType.SPECIAL, 'down'), DownLineCommand())
+        
+        # Selection movement commands (Shift+arrow)
+        self.register((KeyType.SHIFT_SPECIAL, 'left'), ShiftLeftCommand())
+        self.register((KeyType.SHIFT_SPECIAL, 'right'), ShiftRightCommand())
+        self.register((KeyType.SHIFT_SPECIAL, 'up'), ShiftUpCommand())
+        self.register((KeyType.SHIFT_SPECIAL, 'down'), ShiftDownCommand())
         
         # Alt+arrow for word movement
         self.register((KeyType.ALT, 'left'), LeftWordCommand())
@@ -247,6 +330,9 @@ class CommandRegistry:
         self.register((KeyType.ALT, 'c'), CapitalizeWordCommand())
         self.register((KeyType.ALT, 'u'), UpcaseWordCommand())
         self.register((KeyType.ALT, 'l'), DowncaseWordCommand())
+        self.register((KeyType.CTRL, 'x'), CutCommand())
+        self.register((KeyType.CTRL, 'c'), CopyCommand())
+        self.register((KeyType.CTRL, 'v'), PasteCommand())
         
         # System commands
         self.register((KeyType.CTRL, 'q'), QuitCommand())

@@ -31,7 +31,8 @@ class TerminalInterface:
         print(self.term.clear)
         
     def draw_lines(self, lines: list[str], cursor_y: int, cursor_x: int, 
-                   left_margin: int = 0, view_width: int = 65, status_override: str = None):
+                   left_margin: int = 0, view_width: int = 65, status_override: str = None,
+                   selection_ranges: list = None):
         """Draw text lines and position cursor with optional left margin.
         
         Args:
@@ -51,7 +52,18 @@ class TerminalInterface:
             print(self.term.move(y, left_margin), end='')
             # Ensure line is exactly view_width characters (pad or truncate)
             display_line = line[:view_width].ljust(view_width)
-            print(display_line, end='')
+            
+            # Check if this line has any selection
+            if selection_ranges and y < len(selection_ranges) and selection_ranges[y]:
+                start_col, end_col = selection_ranges[y]
+                # Draw line with selection highlighting
+                if start_col > 0:
+                    print(display_line[:start_col], end='')
+                print(self.term.reverse + display_line[start_col:end_col] + self.term.normal, end='')
+                if end_col < len(display_line):
+                    print(display_line[end_col:], end='')
+            else:
+                print(display_line, end='')
             
         # Draw status line at bottom
         if status_override:

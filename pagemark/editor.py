@@ -49,14 +49,24 @@ class Editor:
         del signum, frame # Unused
         # Write to pipe to wake up select()
         os.write(self._resize_pipe_w, EditorConstants.RESIZE_PIPE_MARKER)
+    
+    def _handle_sigint(self, signum, frame):
+        """Handle SIGINT (Ctrl-C) - treat as copy command."""
+        del signum, frame # Unused
+        # Set a flag to process copy command
+        self._ctrl_c_pressed = True
+        # Write to pipe to wake up select()
+        os.write(self._resize_pipe_w, b'C')
 
     def run(self):
         """Run the main editor loop."""
         self.terminal.setup()
         self.running = True
+        self._ctrl_c_pressed = False  # Flag for Ctrl-C detection
 
-        # Set up signal handler for terminal resize
-        original_handler = signal.signal(signal.SIGWINCH, self._handle_resize)
+        # Set up signal handlers
+        original_winch_handler = signal.signal(signal.SIGWINCH, self._handle_resize)
+        original_int_handler = signal.signal(signal.SIGINT, self._handle_sigint)  # Custom handler for Ctrl-C
 
         try:
             # Main event loop
@@ -68,6 +78,12 @@ class Editor:
                     new_settings = list(old_settings)  # Make it mutable
                     # Disable IXON/IXOFF in input flags (index 0) to allow Ctrl-S and Ctrl-Q
                     new_settings[0] &= ~(termios.IXON | termios.IXOFF)
+                    # Also disable IEXTEN in local flags so Ctrl-V (VLNEXT) is not intercepted by tty
+                    try:
+                        new_settings[3] &= ~termios.IEXTEN
+                    except AttributeError:
+                        pass
+                    # Note: We DON'T disable ISIG here; KeyboardInterrupt is handled explicitly
                     termios.tcsetattr(sys.stdin, termios.TCSANOW, new_settings)
                 except (termios.error, AttributeError, OSError):
                     pass
@@ -103,9 +119,23 @@ class Editor:
                     
                     if self._resize_pipe_r in ready:
                         # Clear the pipe
-                        os.read(self._resize_pipe_r, 1024)
-                        # Check if we should continue (pipe can be used to wake for quit too)
-                        if self.running:
+                        data = os.read(self._resize_pipe_r, 1024)
+                        
+                        # Check if this is a Ctrl-C signal
+                        if self._ctrl_c_pressed:
+                            self._ctrl_c_pressed = False
+                            # Create synthetic Ctrl-C event for copy
+                            from .keyboard import KeyEvent
+                            ctrl_c_event = KeyEvent(
+                                key_type=KeyType.CTRL,
+                                value='c',
+                                raw='\x03',
+                                is_ctrl=True
+                            )
+                            self._handle_key_event(ctrl_c_event)
+                            need_draw = True
+                        elif self.running:
+                            # Normal resize event
                             # Force re-render on resize
                             if hasattr(self, '_rendered_once'):
                                 delattr(self, '_rendered_once')
@@ -114,7 +144,7 @@ class Editor:
                         # Handle input (non-blocking since select says it's ready)
                         key_event = self.keyboard.get_key_event(timeout=0)
                         if key_event:
-                            # Process keys
+                            # Process all keys normally
                             self._handle_key_event(key_event)
                             need_draw = True
                 
@@ -129,8 +159,9 @@ class Editor:
             # Handle Ctrl-C gracefully
             pass
         finally:
-            # Restore original signal handler
-            signal.signal(signal.SIGWINCH, original_handler)
+            # Restore original signal handlers
+            signal.signal(signal.SIGWINCH, original_winch_handler)
+            signal.signal(signal.SIGINT, original_int_handler)
             # Close pipes
             os.close(self._resize_pipe_r)
             os.close(self._resize_pipe_w)
@@ -157,13 +188,17 @@ class Editor:
         elif self.status_message:
             status_override = f" {self.status_message}"
 
+        # Get selection ranges for highlighting
+        selection_ranges = self.view.get_selection_ranges()
+        
         self.terminal.draw_lines(
             self.view.lines,
             self.view.visual_cursor_y,
             self.view.visual_cursor_x,
             left_margin=left_margin,
             view_width=self.VIEW_WIDTH,
-            status_override=status_override
+            status_override=status_override,
+            selection_ranges=selection_ranges
         )
 
     def _draw_error(self):
@@ -181,9 +216,15 @@ class Editor:
         print(term.clear(), end='')
         
         # Draw centered, bold title at top
-        title = "Pagemark Help"
-        title_pos = (term.width - len(title)) // 2
-        print(term.move(1, title_pos) + term.bold + title + term.normal, end='')
+        title = "PAGEMARK HELP"
+        # Be defensive: tests may mock term without setting width
+        try:
+            width = int(getattr(term, 'width', 80))
+        except (TypeError, ValueError):
+            width = 80
+        title_pos = (width - len(title)) // 2
+        # Use string coercion to avoid MagicMock arithmetic swallowing content in tests
+        print(f"{term.move(1, title_pos)}{term.bold}{title}{term.normal}", end='')
         
         # Help content
         help_lines = [
@@ -193,29 +234,37 @@ class Editor:
             "  Ctrl-Q    Quit              Alt-B/F    Word left/right",
             "  Ctrl-P    Print             Ctrl-A     Beginning of line",
             "  Ctrl-W    Word count         Ctrl-E     End of line",
+            "  F1        Help",
             "",
             "EDITING",
             "  Ctrl-D    Delete char",
             "  Ctrl-K    Kill line",
             "  Ctrl-^    Center line",
             "  Ctrl-T    Transpose chars",
+            "  Ctrl-X    Cut line",
+            "  Ctrl-C    Copy line",
+            "  Ctrl-V    Paste",
             "  Alt-Bksp  Delete word"
         ]
         
         # Center the help content vertically (accounting for title)
-        content_start_y = max(3, (term.height - len(help_lines)) // 2)
+        try:
+            height = int(getattr(term, 'height', 24))
+        except (TypeError, ValueError):
+            height = 24
+        content_start_y = max(3, (height - len(help_lines)) // 2)
         
         # Calculate horizontal centering
         max_line_length = max(len(line) for line in help_lines)
-        left_margin = max(0, (term.width - max_line_length) // 2)
+        left_margin = max(0, (width - max_line_length) // 2)
         
         # Draw help content
         for i, line in enumerate(help_lines):
-            print(term.move(content_start_y + i, left_margin) + line, end='')
+            print(f"{term.move(content_start_y + i, left_margin)}{line}", end='')
         
         # Draw status line at bottom
         status_text = " Press any key to continue"
-        print(term.move(term.height - 1, 0) + status_text, end='')
+        print(f"{term.move(term.height - 1, 0)}{status_text}", end='')
         
         # Hide cursor
         print(term.hide_cursor, end='', flush=True)
