@@ -179,6 +179,11 @@ class CenterLineCommand(EditCommand):
             editor.status_message = "Cannot center multi-line paragraph"
 
 
+class TransposeCharsCommand(EditCommand):
+    def _edit(self, editor, key_event):
+        editor.model.transpose_chars()
+
+
 class CommandRegistry:
     """Registry for mapping key combinations to commands."""
     
@@ -211,6 +216,7 @@ class CommandRegistry:
         self.register((KeyType.ALT, 'backspace'), KillWordCommand())
         self.register((KeyType.SPECIAL, 'enter'), InsertNewlineCommand())
         self.register((KeyType.CTRL, '^'), CenterLineCommand())
+        self.register((KeyType.CTRL, 't'), TransposeCharsCommand())
         
         # System commands
         self.register((KeyType.CTRL, 'q'), QuitCommand())

@@ -104,6 +104,45 @@ class TextModel:
             word_count += len(words)
         return word_count
     
+    def transpose_chars(self):
+        """Transpose character before cursor with character after cursor.
+        
+        Emacs behavior: If at end of line, transpose the two chars before cursor.
+        If at beginning of line, transpose first two chars.
+        """
+        para_idx = self.cursor_position.paragraph_index
+        paragraph = self.paragraphs[para_idx]
+        char_idx = self.cursor_position.character_index
+        para_len = len(paragraph)
+        
+        if para_len < 2:
+            # Need at least 2 characters to transpose
+            return
+        
+        if char_idx == 0:
+            # At beginning, transpose first two chars
+            self.paragraphs[para_idx] = paragraph[1] + paragraph[0] + paragraph[2:]
+            self.cursor_position.character_index = 2
+        elif char_idx >= para_len:
+            # At end, transpose last two chars
+            self.paragraphs[para_idx] = paragraph[:-2] + paragraph[-1] + paragraph[-2]
+            # Cursor stays at end
+        else:
+            # In middle, transpose char before and after cursor
+            if char_idx == 1:
+                # Special case when cursor is at position 1
+                self.paragraphs[para_idx] = paragraph[1] + paragraph[0] + paragraph[2:]
+            else:
+                self.paragraphs[para_idx] = (
+                    paragraph[:char_idx-1] + 
+                    paragraph[char_idx] + 
+                    paragraph[char_idx-1] + 
+                    paragraph[char_idx+1:]
+                )
+            self.cursor_position.character_index = min(char_idx + 1, para_len)
+        
+        self.view.render()
+    
     def center_line(self) -> bool:
         """Center the current paragraph if it fits on one line.
         

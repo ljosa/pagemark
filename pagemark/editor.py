@@ -198,6 +198,7 @@ class Editor:
             "  Ctrl-D    Delete char",
             "  Ctrl-K    Kill line",
             "  Ctrl-^    Center line",
+            "  Ctrl-T    Transpose chars",
             "  Alt-Bksp  Delete word"
         ]
         
