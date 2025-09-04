@@ -1,4 +1,5 @@
 from typing import Optional
+import re
 # Provide a no-op override decorator on Python < 3.12
 try:
     from typing import override  # type: ignore
@@ -8,61 +9,107 @@ except Exception:  # pragma: no cover - compatibility shim
 from .model import TextView, CursorPosition
 from .constants import EditorConstants
 
-def _break_long_word(word: str, num_columns: int, lines: list[str], 
-                     cumulative_counts: list[int], char_count: int) -> tuple[str, int]:
-    """Break a word that's too long to fit on one line.
-    
-    Returns the remaining part of the word and updated char_count.
+def _get_hanging_indent_width(paragraph: str) -> int:
+    """Return hanging indent width for bullet/numbered paragraphs.
+
+    Detects optional leading spaces, then one of:
+    - '-' or '*' followed by exactly one space
+    - one or more digits followed by '.' or ')' and exactly one space
+
+    Returns total columns before first text char (base indent + marker + one space),
+    or 0 if not a bullet/numbered paragraph.
     """
-    while len(word) >= num_columns:
-        lines.append(word[:num_columns])
-        char_count += num_columns
-        cumulative_counts.append(char_count)
-        word = word[num_columns:]
-    return word, char_count
+    # Leading spaces
+    # Require exactly one space after the marker by asserting the next
+    # character is non-space. This prevents triggering on multiple spaces.
+    m = re.match(r"^(\s*)(?:([-*]) (?=\S)|((?:\d+)(?:[\.)]) (?=\S)))", paragraph)
+    if not m:
+        return 0
+    leading = m.group(1) or ""
+    marker = m.group(2)
+    numbered = m.group(3)
+    if marker is not None:
+        # '-' or '*' with exactly one trailing space matched
+        return len(leading) + len(marker) + 1
+    if numbered is not None:
+        # '\d+.' or '\d+)' with exactly one trailing space matched
+        return len(leading) + len(numbered)
+    return 0
 
 
 def render_paragraph(paragraph: str, num_columns: int) -> tuple[list[str], list[int]]:
-    """Render into a list of lines, at most num_columns long, with word wrap.
+    """Render into a list of lines, with word wrap and hanging indents.
 
-    As a second return value, return the cumulative character
-    counts at the end of each line.
-
+    Returns (lines, cumulative_counts) where cumulative_counts are character
+    counts in the original paragraph at the end of each visual line. Visual
+    indent spaces for wrapped bullet/numbered paragraphs are not counted in
+    cumulative_counts.
     """
     if not paragraph:
         return ([""], [0])
 
-    lines = []
-    cumulative_counts = []
+    hanging_width = _get_hanging_indent_width(paragraph)
+    indent_prefix = " " * hanging_width if hanging_width > 0 else ""
+
+    lines: list[str] = []
+    cumulative_counts: list[int] = []
     char_count = 0
     words = paragraph.split(" ")
-    current_line = None
+    current_line: Optional[str] = None
+    line_index = 0
+
+    def available_width_for_line(idx: int) -> int:
+        if idx == 0:
+            return num_columns
+        return num_columns - hanging_width if hanging_width > 0 else num_columns
 
     for word in words:
+        width = available_width_for_line(line_index)
         if current_line is None:
             # First word on the line
-            if len(word) >= num_columns:
-                # Word is too long, break it
-                word, char_count = _break_long_word(word, num_columns, lines, 
-                                                   cumulative_counts, char_count)
-            current_line = word
+            if len(word) >= width:
+                # Break long word across as many lines as needed
+                while len(word) >= width:
+                    prefix = indent_prefix if (line_index > 0 and hanging_width > 0) else ""
+                    lines.append(prefix + word[:width])
+                    char_count += width
+                    cumulative_counts.append(char_count)
+                    word = word[width:]
+                    line_index += 1
+                    width = available_width_for_line(line_index)
+                current_line = word
+            else:
+                current_line = word
         else:
-            # Check if word fits on current line
-            if len(current_line) + 1 + len(word) < num_columns:
+            # Check if word fits on current line (plus a space)
+            if len(current_line) + 1 + len(word) < width:
                 current_line += " " + word
             else:
-                # Start new line
-                lines.append(current_line)
+                # Commit current line
+                prefix = indent_prefix if (line_index > 0 and hanging_width > 0) else ""
+                lines.append(prefix + current_line)
                 char_count += len(current_line) + 1  # +1 for the space that would have been added
                 cumulative_counts.append(char_count)
-                if len(word) >= num_columns:
-                    # Word is too long, break it
-                    word, char_count = _break_long_word(word, num_columns, lines,
-                                                       cumulative_counts, char_count)
-                current_line = word
+                line_index += 1
+                width = available_width_for_line(line_index)
+                # Place the word on the new line, breaking if needed
+                if len(word) >= width:
+                    while len(word) >= width:
+                        prefix = indent_prefix if (line_index > 0 and hanging_width > 0) else ""
+                        lines.append(prefix + word[:width])
+                        char_count += width
+                        cumulative_counts.append(char_count)
+                        word = word[width:]
+                        line_index += 1
+                        width = available_width_for_line(line_index)
+                    current_line = word
+                else:
+                    current_line = word
 
     assert current_line is not None
-    lines.append(current_line)
+    # Append the final line
+    prefix = indent_prefix if (line_index > 0 and hanging_width > 0) else ""
+    lines.append(prefix + current_line)
     char_count += len(current_line)
     cumulative_counts.append(char_count)
 
@@ -169,14 +216,21 @@ class TerminalTextView(TextView):
                 # Calculate selection within this line
                 sel_start = 0
                 sel_end = len(line)
+                # Hanging indent offset for wrapped lines
+                hanging_width = _get_hanging_indent_width(para)
+                visual_offset = hanging_width if (current_line_offset > 0 and hanging_width > 0) else 0
                 
                 if current_para_idx == start.paragraph_index:
                     if start.character_index > line_start_char:
-                        sel_start = max(0, start.character_index - line_start_char)
+                        sel_start = max(0, start.character_index - line_start_char) + visual_offset
+                    else:
+                        sel_start = 0 + visual_offset
                 
                 if current_para_idx == end.paragraph_index:
                     if end.character_index < line_end_char:
-                        sel_end = min(len(line), end.character_index - line_start_char)
+                        sel_end = min(len(line), (end.character_index - line_start_char) + visual_offset)
+                    else:
+                        sel_end = min(len(line), len(line))
                 
                 if sel_start < sel_end:
                     selection_ranges.append((sel_start, sel_end))
@@ -319,6 +373,11 @@ class TerminalTextView(TextView):
             # Calculate position within the current line
             self.visual_cursor_x = self.model.cursor_position.character_index - para_counts[line_index - 1]
 
+        # Add hanging indent offset for wrapped lines of bullet/numbered paragraphs
+        hanging_width = _get_hanging_indent_width(self.model.paragraphs[cursor_para_idx])
+        if line_index > 0 and hanging_width > 0:
+            self.visual_cursor_x += hanging_width
+
         # Handle cursor at end of line that exactly fills width
         if self.visual_cursor_x == self.num_columns:
             # Cursor wraps to start of next line
@@ -418,13 +477,25 @@ class TerminalTextView(TextView):
             return
         
         line_text = para_lines[line_within_para]
-        actual_x = min(desired_x, len(line_text))
+        # Adjust for hanging indent when mapping from visual X to character index
+        hanging_width = _get_hanging_indent_width(self.model.paragraphs[paragraph_index])
+        if line_within_para > 0 and hanging_width > 0:
+            if desired_x <= hanging_width:
+                actual_x = hanging_width  # snap clicks into indent to text start
+            else:
+                actual_x = min(desired_x, len(line_text))
+        else:
+            actual_x = min(desired_x, len(line_text))
         
         # Calculate character index in the paragraph
         if line_within_para == 0:
             char_index = actual_x
         else:
-            char_index = para_counts[line_within_para - 1] + actual_x
+            # Subtract visual indent to get content X
+            content_x = actual_x - (hanging_width if (hanging_width > 0) else 0)
+            if content_x < 0:
+                content_x = 0
+            char_index = para_counts[line_within_para - 1] + content_x
         
         # Update cursor position
         self.model.cursor_position.paragraph_index = paragraph_index
@@ -478,13 +549,23 @@ class TerminalTextView(TextView):
             return
         
         line_text = para_lines[line_within_para]
-        actual_x = min(self.desired_x, len(line_text))
+        hanging_width = _get_hanging_indent_width(self.model.paragraphs[paragraph_index])
+        if line_within_para > 0 and hanging_width > 0:
+            if self.desired_x <= hanging_width:
+                actual_x = hanging_width
+            else:
+                actual_x = min(self.desired_x, len(line_text))
+        else:
+            actual_x = min(self.desired_x, len(line_text))
         
         # Calculate character index in the paragraph
         if line_within_para == 0:
             char_index = actual_x
         else:
-            char_index = para_counts[line_within_para - 1] + actual_x
+            content_x = actual_x - (hanging_width if (hanging_width > 0) else 0)
+            if content_x < 0:
+                content_x = 0
+            char_index = para_counts[line_within_para - 1] + content_x
         
         # Update cursor position
         self.model.cursor_position.paragraph_index = paragraph_index
@@ -515,13 +596,23 @@ class TerminalTextView(TextView):
             return
         
         line_text = para_lines[line_within_para]
-        actual_x = min(self.desired_x, len(line_text))
+        hanging_width = _get_hanging_indent_width(self.model.paragraphs[paragraph_index])
+        if line_within_para > 0 and hanging_width > 0:
+            if self.desired_x <= hanging_width:
+                actual_x = hanging_width
+            else:
+                actual_x = min(self.desired_x, len(line_text))
+        else:
+            actual_x = min(self.desired_x, len(line_text))
         
         # Calculate character index in the paragraph
         if line_within_para == 0:
             char_index = actual_x
         else:
-            char_index = para_counts[line_within_para - 1] + actual_x
+            content_x = actual_x - (hanging_width if (hanging_width > 0) else 0)
+            if content_x < 0:
+                content_x = 0
+            char_index = para_counts[line_within_para - 1] + content_x
         
         # Update cursor position
         self.model.cursor_position.paragraph_index = paragraph_index
