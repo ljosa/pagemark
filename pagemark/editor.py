@@ -40,8 +40,9 @@ class Editor:
         self.filename = None
         self.modified = False
         self.status_message = None
-        self.prompt_mode = None  # None, 'save_filename', 'save_filename_quit', or 'quit_confirm'
+        self.prompt_mode = None  # None, 'save_filename', 'save_filename_quit', 'quit_confirm', or 'help'
         self.prompt_input = ""
+        self.help_visible = False  # Track if help screen is visible
 
     def _handle_resize(self, signum, frame):
         """Handle terminal resize signal."""
@@ -137,6 +138,11 @@ class Editor:
 
     def _draw(self):
         """Draw the current editor state to terminal."""
+        # Show help screen if active
+        if self.help_visible:
+            self._draw_help()
+            return
+            
         # Calculate left margin for centering
         left_margin = (self.terminal.width - self.VIEW_WIDTH) // 2
 
@@ -166,6 +172,62 @@ class Editor:
             EditorConstants.TERMINAL_TOO_NARROW_MESSAGE.format(EditorConstants.MIN_TERMINAL_WIDTH),
             EditorConstants.CURRENT_WIDTH_MESSAGE.format(self.terminal.width)
         )
+    
+    def _draw_help(self):
+        """Draw the help screen."""
+        term = self.terminal.term
+        
+        # Clear screen
+        print(term.clear(), end='')
+        
+        # Draw centered, bold title at top
+        title = "Pagemark Help"
+        title_pos = (term.width - len(title)) // 2
+        print(term.move(1, title_pos) + term.bold + title + term.normal, end='')
+        
+        # Help content
+        help_lines = [
+            "",
+            "FILE                         NAVIGATION",
+            "  Ctrl-S    Save              Alt-←/→    Word left/right",
+            "  Ctrl-Q    Quit              Alt-B/F    Word left/right",
+            "  Ctrl-P    Print             Ctrl-A     Beginning of line",
+            "                              Ctrl-E     End of line",
+            "",
+            "EDITING",
+            "  Ctrl-D    Delete char",
+            "  Ctrl-K    Kill line",
+            "  Alt-Bksp  Delete word"
+        ]
+        
+        # Center the help content vertically (accounting for title)
+        content_start_y = max(3, (term.height - len(help_lines)) // 2)
+        
+        # Calculate horizontal centering
+        max_line_length = max(len(line) for line in help_lines)
+        left_margin = max(0, (term.width - max_line_length) // 2)
+        
+        # Draw help content
+        for i, line in enumerate(help_lines):
+            print(term.move(content_start_y + i, left_margin) + line, end='')
+        
+        # Draw status line at bottom
+        status_text = " Press any key to continue"
+        print(term.move(term.height - 1, 0) + status_text, end='')
+        
+        # Hide cursor
+        print(term.hide_cursor, end='', flush=True)
+    
+    def show_help(self):
+        """Show the help screen."""
+        self.help_visible = True
+    
+    def hide_help(self):
+        """Hide the help screen and return to editor."""
+        self.help_visible = False
+        # Force re-render
+        if hasattr(self, '_rendered_once'):
+            delattr(self, '_rendered_once')
 
     def _handle_key_event(self, key_event: KeyEvent):
         """Handle a keyboard event.
@@ -173,6 +235,11 @@ class Editor:
         Args:
             key_event: KeyEvent object with parsed key information
         """
+        # If help is visible, any key dismisses it
+        if self.help_visible:
+            self.hide_help()
+            return
+            
         # Clear status message on any keypress (except in prompt mode)
         if self.status_message and not self.prompt_mode:
             self.status_message = None

@@ -131,6 +131,7 @@ class KeyboardHandler:
         
         key_str = str(key)
         
+        
         # If it starts with ESC, buffer it and try to collect the full sequence
         if key_str == '\x1b' or self._buffer:
             self._buffer += key_str
@@ -360,6 +361,10 @@ class KeyboardHandler:
             term.KEY_PGDOWN: 'page_down',
             263: 'backspace',  # Common backspace code
         }
+        
+        # Add function keys if they exist
+        if hasattr(term, 'KEY_F1'):
+            key_mapping[term.KEY_F1] = 'f1'
         
         return key_mapping.get(key.code, f'key_{key.code}')
 

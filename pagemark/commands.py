@@ -161,6 +161,11 @@ class PrintCommand(SystemCommand):
         editor._handle_print()
 
 
+class HelpCommand(SystemCommand):
+    def _execute_system(self, editor, key_event):
+        editor.show_help()
+
+
 class CommandRegistry:
     """Registry for mapping key combinations to commands."""
     
@@ -197,6 +202,9 @@ class CommandRegistry:
         self.register((KeyType.CTRL, 'q'), QuitCommand())
         self.register((KeyType.CTRL, 's'), SaveCommand())
         self.register((KeyType.CTRL, 'p'), PrintCommand())
+        
+        # Help command - F1 only
+        self.register((KeyType.SPECIAL, 'f1'), HelpCommand())
     
     def register(self, key: Tuple[KeyType, str], command: EditorCommand):
         """Register a command for a key combination."""

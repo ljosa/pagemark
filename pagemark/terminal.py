@@ -55,11 +55,19 @@ class TerminalInterface:
             
         # Draw status line at bottom
         if status_override:
+            # When there's a message or interaction, show it without F1 help
             status = status_override
+            print(self.term.move(self.term.height - 1, 0), end='')
+            print(status.ljust(self.term.width), end='')
         else:
-            status = f" Line {cursor_y + 1}, Col {cursor_x + 1} | Ctrl-Q to quit "
-        print(self.term.move(self.term.height - 1, 0), end='')
-        print(self.term.reverse + status.ljust(self.term.width) + self.term.normal, end='')
+            # At rest, show "F1 for help" right-justified
+            help_text = "F1 for help"
+            print(self.term.move(self.term.height - 1, 0), end='')
+            # Clear the line first
+            print(' ' * self.term.width, end='')
+            # Position at right side for help text
+            print(self.term.move(self.term.height - 1, self.term.width - len(help_text) - 1), end='')
+            print(help_text, end='')
         
         # Position cursor (adjust for margin or for prompt input)
         if status_override and (": " in status_override):
@@ -97,10 +105,10 @@ class TerminalInterface:
             print(self.term.move(center_y, left_margin) + "╚" + "═" * (box_width - 2) + "╝", end='')
         
         # Draw help text at bottom
-        help_text = " Ctrl-Q to quit | Resize terminal to continue "
+        help_text = "Ctrl-Q to quit | Resize terminal to continue"
         help_pos = (self.term.width - len(help_text)) // 2
         print(self.term.move(self.term.height - 1, help_pos), end='')
-        print(self.term.reverse + help_text + self.term.normal, end='', flush=True)
+        print(help_text, end='', flush=True)
         
     def get_key(self, timeout=None):
         """Get a single keypress from the user.
