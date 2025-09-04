@@ -17,7 +17,7 @@ class CursorPosition:
 
 
 class TextView(ABC):
-    _model: "TextModel | None" = None
+    _model: "Optional[TextModel]" = None
     start_paragraph_index: int = 0
     end_paragraph_index: int = 1
 
@@ -52,7 +52,7 @@ class TextModel:
         self.selection_end = None    # Current end of selection
         self.clipboard = ""          # Internal clipboard for cut/copy/paste
 
-    def insert_text(self, text: str, position: CursorPosition | None = None):
+    def insert_text(self, text: str, position: Optional[CursorPosition] = None):
         if position is None:
             position = self.cursor_position
 

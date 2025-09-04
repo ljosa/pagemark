@@ -1,4 +1,10 @@
-from typing import override
+from typing import Optional
+# Provide a no-op override decorator on Python < 3.12
+try:
+    from typing import override  # type: ignore
+except Exception:  # pragma: no cover - compatibility shim
+    def override(func):
+        return func
 from .model import TextView, CursorPosition
 from .constants import EditorConstants
 
@@ -427,7 +433,7 @@ class TerminalTextView(TextView):
         # Re-render to update visual cursor position
         self.render()
     
-    def _visual_y_to_document_line(self, visual_y: int) -> int | None:
+    def _visual_y_to_document_line(self, visual_y: int) -> Optional[int]:
         """Convert visual Y position to document line number."""
         if visual_y < 0 or visual_y >= len(self.lines):
             return None
