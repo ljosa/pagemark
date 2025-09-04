@@ -41,6 +41,11 @@ class KeyboardHandler:
         # Alt + letters (ESC + letter)
         '\x1bb': ('b', True),           # Alt+B (backward word)
         '\x1bf': ('f', True),           # Alt+F (forward word)
+        '\x1bc': ('c', True),           # Alt+C (capitalize word)
+        '\x1bd': ('d', True),           # Alt+D (delete word)
+        '\x1bl': ('l', True),           # Alt+L (downcase word)
+        '\x1bt': ('t', True),           # Alt+T (transpose words)
+        '\x1bu': ('u', True),           # Alt+U (upcase word)
         
         # Alt + backspace
         '\x1b\x7f': ('backspace', True),  # Alt+Backspace (delete word)
@@ -132,6 +137,18 @@ class KeyboardHandler:
         
         key_str = str(key)
         
+        # Check if this is a complete Alt sequence (ESC + letter)
+        if len(key_str) == 2 and key_str[0] == '\x1b':
+            # This is likely Alt+letter
+            letter = key_str[1]
+            if letter.isalpha():
+                return KeyEvent(
+                    key_type=KeyType.ALT,
+                    value=letter.lower(),
+                    raw=key_str,
+                    is_alt=True,
+                    is_sequence=False
+                )
         
         # If it starts with ESC, buffer it and try to collect the full sequence
         if key_str == '\x1b' or self._buffer:
