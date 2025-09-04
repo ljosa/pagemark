@@ -340,6 +340,39 @@ class TextModel:
         
         self.view.render()
     
+    def downcase_word(self):
+        """Convert word at or after cursor to lowercase (Emacs M-l).
+        
+        Move forward to beginning of word if not at one, convert to lowercase,
+        and move cursor to end of word.
+        """
+        para = self.paragraphs[self.cursor_position.paragraph_index]
+        pos = self.cursor_position.character_index
+        para_len = len(para)
+        
+        # Skip to start of word if not at one
+        while pos < para_len and para[pos].isspace():
+            pos += 1
+        
+        if pos >= para_len:
+            return
+        
+        # Find end of word
+        word_start = pos
+        while pos < para_len and not para[pos].isspace():
+            pos += 1
+        word_end = pos
+        
+        # Convert to lowercase
+        word = para[word_start:word_end]
+        if word:
+            self.paragraphs[self.cursor_position.paragraph_index] = (
+                para[:word_start] + word.lower() + para[word_end:]
+            )
+            self.cursor_position.character_index = word_end
+        
+        self.view.render()
+    
     def upcase_word(self):
         """Convert word at or after cursor to uppercase (Emacs M-u).
         

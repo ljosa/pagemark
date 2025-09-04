@@ -204,6 +204,11 @@ class UpcaseWordCommand(EditCommand):
         editor.model.upcase_word()
 
 
+class DowncaseWordCommand(EditCommand):
+    def _edit(self, editor, key_event):
+        editor.model.downcase_word()
+
+
 class CommandRegistry:
     """Registry for mapping key combinations to commands."""
     
@@ -241,6 +246,7 @@ class CommandRegistry:
         self.register((KeyType.ALT, 't'), TransposeWordsCommand())
         self.register((KeyType.ALT, 'c'), CapitalizeWordCommand())
         self.register((KeyType.ALT, 'u'), UpcaseWordCommand())
+        self.register((KeyType.ALT, 'l'), DowncaseWordCommand())
         
         # System commands
         self.register((KeyType.CTRL, 'q'), QuitCommand())
