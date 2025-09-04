@@ -25,11 +25,11 @@ def test_count_words_multiple_paragraphs():
     """Test word count across multiple paragraphs."""
     model = DocumentModel()
     model.paragraphs = [
-        "First paragraph has four words.",
-        "Second paragraph also has five words.",
+        "First paragraph has five words.",
+        "Second paragraph also has six words.",
         "Third one."
     ]
-    assert model.count_words() == 12
+    assert model.count_words() == 13
 
 
 def test_count_words_with_extra_spaces():
