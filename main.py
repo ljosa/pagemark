@@ -1,32 +1,34 @@
 #!/usr/bin/env python3
-"""Pagemark - A simple word processor with Emacs-style keybindings.
+"""Pagemark - A simple word processor.
 
 Usage:
     python main.py [filename]
     
 Controls:
-    Arrow keys: Navigate cursor
+    Arrow keys: Navigate cursor (maintains column position)
     Ctrl-S: Save file
-    Ctrl-Q: Quit
-    Ctrl-P: Print
-    
-    Emacs keybindings:
-    Alt-b/Alt-f: Move backward/forward by word
-    Alt-backspace: Delete word backward
-    Ctrl-A/Ctrl-E: Beginning/end of line
-    Ctrl-D: Delete character forward
-    Ctrl-K: Kill to end of line
+    Ctrl-Q: Quit (prompts to save if modified)
+    Type to insert text
+    Backspace: Delete character
+    Enter: New paragraph
 """
 
 import sys
-from pagemark.editor_wrapper import TextualEditor
+from pagemark.editor import Editor
 
 
 def main():
     """Entry point for the word processor."""
-    filename = sys.argv[1] if len(sys.argv) > 1 else None
-    app = TextualEditor(filename=filename)
-    app.run()
+    editor = Editor()
+    
+    # Load file if provided
+    if len(sys.argv) > 1:
+        editor.load_file(sys.argv[1])
+    
+    # Run the editor
+    editor.run()
+    
+    print("\nGoodbye!")
 
 
 if __name__ == "__main__":
