@@ -192,7 +192,7 @@ class Editor:
             "  Ctrl-S    Save              Alt-←/→    Word left/right",
             "  Ctrl-Q    Quit              Alt-B/F    Word left/right",
             "  Ctrl-P    Print             Ctrl-A     Beginning of line",
-            "                              Ctrl-E     End of line",
+            "  Ctrl-W    Word count         Ctrl-E     End of line",
             "",
             "EDITING",
             "  Ctrl-D    Delete char",

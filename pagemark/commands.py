@@ -166,6 +166,12 @@ class HelpCommand(SystemCommand):
         editor.show_help()
 
 
+class WordCountCommand(SystemCommand):
+    def _execute_system(self, editor, key_event):
+        word_count = editor.model.count_words()
+        editor.status_message = f"{word_count} words"
+
+
 class CommandRegistry:
     """Registry for mapping key combinations to commands."""
     
@@ -202,6 +208,7 @@ class CommandRegistry:
         self.register((KeyType.CTRL, 'q'), QuitCommand())
         self.register((KeyType.CTRL, 's'), SaveCommand())
         self.register((KeyType.CTRL, 'p'), PrintCommand())
+        self.register((KeyType.CTRL, 'w'), WordCountCommand())
         
         # Help command - F1 only
         self.register((KeyType.SPECIAL, 'f1'), HelpCommand())

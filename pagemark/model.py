@@ -91,6 +91,19 @@ class TextModel:
             self.cursor_position.character_index = len(self.paragraphs[self.cursor_position.paragraph_index])
         self.view.render()
     
+    def count_words(self) -> int:
+        """Count the total number of words in the document.
+        
+        Returns:
+            Total word count
+        """
+        word_count = 0
+        for paragraph in self.paragraphs:
+            # Split by whitespace and count non-empty strings
+            words = paragraph.split()
+            word_count += len(words)
+        return word_count
+    
     def _join_with_previous_paragraph(self):
         """Join current paragraph with previous one, positioning cursor at join point.
         
