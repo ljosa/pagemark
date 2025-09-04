@@ -1,10 +1,11 @@
 """Keyboard input handling with proper Alt key support."""
 
-from typing import Optional, Tuple
+from typing import Optional
 from dataclasses import dataclass
 from enum import Enum
 import blessed
 from .constants import EditorConstants
+import time
 
 
 class KeyType(Enum):
@@ -37,6 +38,8 @@ class KeyboardHandler:
         # Alt + arrow keys (various terminal encodings)
         '\x1b[1;3D': ('left', True),   # xterm-style Alt+Left
         '\x1b[1;3C': ('right', True),  # xterm-style Alt+Right
+        '\x1b[1;9D': ('left', True),   # xterm Meta=9 Alt+Left
+        '\x1b[1;9C': ('right', True),  # xterm Meta=9 Alt+Right
         # Note: \x1b[D and \x1b[C are regular arrow keys, not Alt-modified
         # Note: \x1bOD and \x1bOC are regular arrow keys in application mode, not Alt-modified
         
@@ -100,17 +103,90 @@ class KeyboardHandler:
         self.terminal = terminal_interface
         
     def get_key_event(self, timeout: Optional[float] = None) -> Optional[KeyEvent]:
-        """Get next key event with consolidated Alt/Shift handling."""
+        """Get next key event with consolidated Alt/Shift handling.
+
+        Uses a brief timeout after ESC to capture Alt-modified sequences
+        emitted in multiple parts (ESC followed by a special/letter).
+        """
         key = self.terminal.get_key(timeout)
         if not key:
             return None
         key_str = str(key)
 
-        # Combine ESC with the immediate next keystroke (non-blocking)
+        # Combine ESC with subsequent keystrokes using a two-phase wait
         if key_str == '\x1b':
-            next_key = self.terminal.get_key(timeout=0)
-            if next_key:
-                combined = key_str + str(next_key)
+            start = time.monotonic()
+            phase1 = 0.015  # quick check for immediate follow-up
+            cap = EditorConstants.ESCAPE_SEQUENCE_TIMEOUT
+
+            # Phase 1: very short wait; if nothing arrives, return ESC promptly
+            next_key = self.terminal.get_key(timeout=phase1)
+            if not next_key:
+                return KeyEvent(
+                    key_type=KeyType.SPECIAL,
+                    value='escape',
+                    raw='\x1b',
+                    is_sequence=False
+                )
+
+            combined = '\x1b' + str(next_key)
+
+            # Fast-path matches after first char
+            if combined in self.SHIFT_SEQUENCES:
+                return KeyEvent(
+                    key_type=KeyType.SHIFT_SPECIAL,
+                    value=self.SHIFT_SEQUENCES[combined],
+                    raw=combined,
+                    is_shift=True,
+                    is_sequence=True
+                )
+            if combined in self.ALT_SEQUENCES:
+                base_key, is_alt = self.ALT_SEQUENCES[combined]
+                return KeyEvent(
+                    key_type=KeyType.ALT,
+                    value=base_key,
+                    raw=combined,
+                    is_alt=is_alt,
+                    is_sequence=False
+                )
+            # Blessed may deliver the arrow as a special
+            if hasattr(next_key, 'is_sequence') and next_key.is_sequence:
+                key_name = self._get_key_name(next_key)
+                if key_name in ('left', 'right', 'up', 'down', 'backspace'):
+                    return KeyEvent(
+                        key_type=KeyType.ALT,
+                        value=key_name,
+                        raw=combined,
+                        is_alt=True,
+                        is_sequence=True,
+                        code=next_key.code if hasattr(next_key, 'code') else None
+                    )
+            # Simple Alt+letter/backspace
+            nstr = str(next_key)
+            if len(nstr) == 1 and nstr.isalpha():
+                return KeyEvent(
+                    key_type=KeyType.ALT,
+                    value=nstr.lower(),
+                    raw=combined,
+                    is_alt=True,
+                    is_sequence=False
+                )
+            if len(nstr) == 1 and nstr in ('\x7f', '\x08'):
+                return KeyEvent(
+                    key_type=KeyType.ALT,
+                    value='backspace',
+                    raw=combined,
+                    is_alt=True,
+                    is_sequence=False
+                )
+
+            # Phase 2: continue collecting up to cap
+            while (time.monotonic() - start) < cap:
+                remaining = cap - (time.monotonic() - start)
+                more = self.terminal.get_key(timeout=max(0.0, remaining))
+                if not more:
+                    break
+                combined += str(more)
                 if combined in self.SHIFT_SEQUENCES:
                     return KeyEvent(
                         key_type=KeyType.SHIFT_SPECIAL,
@@ -128,24 +204,13 @@ class KeyboardHandler:
                         is_alt=is_alt,
                         is_sequence=False
                     )
-                nstr = str(next_key)
-                if len(nstr) == 1 and nstr.isalpha():
-                    return KeyEvent(
-                        key_type=KeyType.ALT,
-                        value=nstr.lower(),
-                        raw=combined,
-                        is_alt=True,
-                        is_sequence=False
-                    )
-                # Fallback: handle next_key normally
-                return self.parse_key(next_key)
-            # Bare ESC
-            return KeyEvent(
-                key_type=KeyType.SPECIAL,
-                value='escape',
-                raw='\x1b',
-                is_sequence=False
-            )
+                if any(seq.startswith(combined) for seq in (*self.ALT_SEQUENCES.keys(), *self.SHIFT_SEQUENCES.keys())):
+                    continue
+                # No longer matching any known prefix
+                break
+
+            # Fallback: treat next_key as a normal key if no match
+            return self.parse_key(next_key)
 
         return self.parse_key(key)
     
@@ -213,17 +278,6 @@ class KeyboardHandler:
                 value=base_key,
                 raw=key_str,
                 is_alt=is_alt,
-                is_sequence=hasattr(key, 'is_sequence') and key.is_sequence,
-                code=key.code if hasattr(key, 'code') else None
-            )
-
-        # Check for Shift-modified special sequences by raw string
-        if key_str in self.SHIFT_SEQUENCES:
-            return KeyEvent(
-                key_type=KeyType.SHIFT_SPECIAL,
-                value=self.SHIFT_SEQUENCES[key_str],
-                raw=key_str,
-                is_shift=True,
                 is_sequence=hasattr(key, 'is_sequence') and key.is_sequence,
                 code=key.code if hasattr(key, 'code') else None
             )

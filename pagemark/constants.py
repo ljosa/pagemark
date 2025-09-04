@@ -9,8 +9,10 @@ class EditorConstants:
     PAGE_BREAK_LINE = "-" * 76  # Visual separator between pages
     
     # Keyboard timing
-    ESCAPE_SEQUENCE_TIMEOUT = 0.01  # Timeout for collecting multi-character escape sequences (seconds)
-    ALT_KEY_TIMEOUT = 0.01  # Timeout for detecting Alt+key combinations (seconds)
+    # Maximum time window to collect the remainder of an ESC-prefixed sequence
+    # (e.g., Alt+Arrow). Kept short to preserve a snappy ESC.
+    ESCAPE_SEQUENCE_TIMEOUT = 0.06
+    ALT_KEY_TIMEOUT = 0.06
     
     # Terminal requirements
     MIN_TERMINAL_WIDTH = 65  # Minimum terminal width required for display
