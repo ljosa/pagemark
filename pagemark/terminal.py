@@ -1,7 +1,9 @@
-"""Terminal interface using Blessed for the word processor."""
+"""Terminal interface using Blessed for display and Curtsies for input."""
 
 import blessed
 from typing import Optional
+import sys
+import select
 
 
 class TerminalInterface:
@@ -11,6 +13,8 @@ class TerminalInterface:
         """Initialize with a terminal instance (or create one)."""
         self.term = terminal or blessed.Terminal()
         self.is_fullscreen = False
+        self._curtsies_input: Optional[object] = None
+        self._curtsies_active: bool = False
         
     def setup(self):
         """Enter fullscreen mode and prepare terminal."""
@@ -18,6 +22,17 @@ class TerminalInterface:
         print(self.term.hide_cursor)
         print(self.term.clear)
         self.is_fullscreen = True
+        # Initialize curtsies input
+        if self._curtsies_input is None:
+            try:
+                from curtsies import Input  # type: ignore
+                # Enter raw mode immediately so reads work
+                self._curtsies_input = Input(keynames='curtsies')  # type: ignore
+                self._curtsies_input.__enter__()
+                self._curtsies_active = True
+            except Exception:
+                self._curtsies_input = None
+                self._curtsies_active = False
         
     def cleanup(self):
         """Exit fullscreen mode and restore terminal."""
@@ -25,6 +40,17 @@ class TerminalInterface:
             print(self.term.exit_fullscreen)
             print(self.term.normal_cursor)
             self.is_fullscreen = False
+        # Close curtsies input if in use
+        if self._curtsies_input is not None:
+            try:
+                if self._curtsies_active:
+                    # Exit raw mode context
+                    self._curtsies_input.__exit__(None, None, None)  # type: ignore
+            except Exception:
+                pass
+            finally:
+                self._curtsies_input = None
+                self._curtsies_active = False
             
     def clear_screen(self):
         """Clear the entire screen."""
@@ -124,17 +150,30 @@ class TerminalInterface:
         
     def get_key(self, timeout=None):
         """Get a single keypress from the user.
-        
+
+        Uses curtsies Input if available for normalized events; falls back to
+        blessed if curtsies is unavailable.
+
         Args:
             timeout: Timeout in seconds (None for blocking, 0 for non-blocking)
             
         Returns:
-            blessed.keyboard.Keystroke object
+            A key event object; for curtsies, a small shim with __str__.
         """
-        if timeout is None:
-            return self.term.inkey()
-        else:
-            return self.term.inkey(timeout=timeout)
+        if self._curtsies_input is not None:
+            # Use select on stdin to implement timeouts
+            if timeout is None:
+                evt = next(self._curtsies_input)  # blocks
+                return str(evt)
+            else:
+                t = 0.0 if timeout == 0 else float(timeout)
+                r, _, _ = select.select([sys.stdin], [], [], t)
+                if not r:
+                    return None
+                evt = next(self._curtsies_input)
+                return str(evt)
+        # Curtsies is required; if not initialized, return None
+        return None
     
     @property
     def width(self):

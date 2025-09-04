@@ -44,8 +44,8 @@ def test_alt_left_sequences():
     terminal = MockTerminal()
     handler = KeyboardHandler(terminal)
     
-    # Test xterm-style Alt+Left
-    terminal.add_key('\x1b[1;3D')
+    # Curtsies-style Alt+Left
+    terminal.add_key('<Alt-left>')
     event = handler.get_key_event()
     assert event is not None
     assert event.key_type == KeyType.ALT
@@ -53,7 +53,7 @@ def test_alt_left_sequences():
     assert event.is_alt == True
     
     # Test Alt-b (backward word)
-    terminal.add_key('\x1bb')
+    terminal.add_key('<Alt-b>')
     event = handler.get_key_event()
     assert event.key_type == KeyType.ALT
     assert event.value == 'b'
@@ -65,18 +65,34 @@ def test_alt_right_sequences():
     terminal = MockTerminal()
     handler = KeyboardHandler(terminal)
     
-    # Test xterm-style Alt+Right
-    terminal.add_key('\x1b[1;3C')
+    # Curtsies-style Alt+Right
+    terminal.add_key('<Alt-right>')
     event = handler.get_key_event()
     assert event.key_type == KeyType.ALT
     assert event.value == 'right'
     assert event.is_alt == True
     
     # Test Alt-f (forward word)
-    terminal.add_key('\x1bf')
+    terminal.add_key('<Alt-f>')
     event = handler.get_key_event()
     assert event.key_type == KeyType.ALT
     assert event.value == 'f'
+
+
+def test_alt_arrow_variants():
+    """Curtsies emits tokens for Alt+arrows; ensure we handle them."""
+    terminal = MockTerminal()
+    handler = KeyboardHandler(terminal)
+
+    terminal.add_key('<Alt-left>')
+    event = handler.get_key_event()
+    assert event.key_type == KeyType.ALT
+    assert event.value == 'left'
+
+    terminal.add_key('<Alt-right>')
+    event = handler.get_key_event()
+    assert event.key_type == KeyType.ALT
+    assert event.value == 'right'
 
 
 def test_alt_backspace():
@@ -84,40 +100,39 @@ def test_alt_backspace():
     terminal = MockTerminal()
     handler = KeyboardHandler(terminal)
     
-    # Test Alt+Backspace variant 1
-    terminal.add_key('\x1b\x7f')
+    # Test Alt+Backspace
+    terminal.add_key('<Alt-backspace>')
     event = handler.get_key_event()
     assert event.key_type == KeyType.ALT
     assert event.value == 'backspace'
     assert event.is_alt == True
     
-    # Test Alt+Backspace variant 2
-    terminal.add_key('\x1b\x08')
+    # Alternate representation for word delete is not standardized in curtsies;
+    # ensure Alt-letter is reported as Alt+that letter
+    terminal.add_key('<Alt-h>')
     event = handler.get_key_event()
     assert event.key_type == KeyType.ALT
-    assert event.value == 'backspace'
+    assert event.value == 'h'
 
 
-def test_esc_followed_by_key():
-    """Test ESC followed by another key (two-part Alt sequence)."""
+def test_escape_key_is_not_alt():
+    """ESC alone should be escape, not Alt modifier in curtsies mode."""
     terminal = MockTerminal()
     handler = KeyboardHandler(terminal)
-    
-    # Test ESC + b (Alt-b)
-    terminal.add_key('\x1b')
-    terminal.add_key('b')
+
+    terminal.add_key('<ESC>')
     event = handler.get_key_event()
-    assert event.key_type == KeyType.ALT
-    assert event.value == 'b'
-    assert event.is_alt == True
+    assert event.key_type == KeyType.SPECIAL
+    assert event.value == 'escape'
     
-    # Test ESC + f (Alt-f)
+    # ESC followed by 'f' is not Alt-f in curtsies mode; separate keys
     terminal.add_key('\x1b')
+    event = handler.get_key_event()
+    assert event.key_type == KeyType.SPECIAL and event.value == 'escape'
     terminal.add_key('f')
     event = handler.get_key_event()
-    assert event.key_type == KeyType.ALT
+    assert event.key_type == KeyType.REGULAR
     assert event.value == 'f'
-    assert event.is_alt == True
 
 
 def test_esc_alone():
@@ -171,23 +186,16 @@ def test_ctrl_keys():
 
 
 def test_regular_arrow_sequences():
-    """Test that regular arrow sequences are NOT treated as Alt."""
+    """Curtsies tokens for arrows are special, not Alt."""
     terminal = MockTerminal()
     handler = KeyboardHandler(terminal)
     
     # These should NOT be treated as Alt sequences
-    regular_sequences = [
-        '\x1b[D',   # Regular left arrow in many terminals
-        '\x1b[C',   # Regular right arrow in many terminals  
-        '\x1bOD',   # Application mode left arrow
-        '\x1bOC',   # Application mode right arrow
-    ]
+    regular_sequences = ['<LEFT>', '<RIGHT>']
     
     for seq in regular_sequences:
         terminal.add_key(seq)
         event = handler.get_key_event()
-        # These will be buffered and returned as regular keys since blessed
-        # should handle them as special sequences
         assert event is not None
         assert event.key_type != KeyType.ALT, f"{repr(seq)} should not be Alt"
         
@@ -198,26 +206,26 @@ def test_special_keys():
     handler = KeyboardHandler(terminal)
     
     # Left arrow
-    terminal.add_key('[D', is_sequence=True, code=terminal.term.KEY_LEFT)
+    terminal.add_key('<LEFT>')
     event = handler.get_key_event()
     assert event.key_type == KeyType.SPECIAL
     assert event.value == 'left'
     assert event.is_sequence == True
     
     # Right arrow
-    terminal.add_key('[C', is_sequence=True, code=terminal.term.KEY_RIGHT)
+    terminal.add_key('<RIGHT>')
     event = handler.get_key_event()
     assert event.key_type == KeyType.SPECIAL
     assert event.value == 'right'
     
     # Enter
-    terminal.add_key('\r', is_sequence=True, code=terminal.term.KEY_ENTER)
+    terminal.add_key('<ENTER>')
     event = handler.get_key_event()
     assert event.key_type == KeyType.SPECIAL
     assert event.value == 'enter'
     
     # Backspace
-    terminal.add_key('\x7f', is_sequence=True, code=terminal.term.KEY_BACKSPACE)
+    terminal.add_key('<BACKSPACE>')
     event = handler.get_key_event()
     assert event.key_type == KeyType.SPECIAL
     assert event.value == 'backspace'

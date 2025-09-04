@@ -8,11 +8,7 @@ class EditorConstants:
     LINES_PER_PAGE = 54  # Lines per printed page (US letter)
     PAGE_BREAK_LINE = "-" * 76  # Visual separator between pages
     
-    # Keyboard timing
-    # Maximum time window to collect the remainder of an ESC-prefixed sequence
-    # (e.g., Alt+Arrow). Kept short to preserve a snappy ESC.
-    ESCAPE_SEQUENCE_TIMEOUT = 0.06
-    ALT_KEY_TIMEOUT = 0.06
+    
     
     # Terminal requirements
     MIN_TERMINAL_WIDTH = 65  # Minimum terminal width required for display

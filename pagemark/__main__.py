@@ -7,12 +7,9 @@ defined in `pyproject.toml`.
 from __future__ import annotations
 
 import sys
-import termios
-from typing import Optional
-
 from .editor import Editor
 from .terminal import TerminalInterface
-from .keyboard import KeyboardHandler, KeyEvent
+from .keyboard import KeyboardHandler, KeyEvent, KeyType
 
 
 def _escape_bytes(s: str) -> str:
@@ -22,64 +19,77 @@ def _escape_bytes(s: str) -> str:
 
 
 def run_keyboard_test() -> None:
-    """Run a simple interactive keyboard test using the real input stack.
+    """Run an interactive keyboard test using the editor's input stack.
 
-    - Uses TerminalInterface + KeyboardHandler (same path as the editor)
-    - Press Ctrl-Q or ESC to quit
+    Uses TerminalInterface + KeyboardHandler; configures termios to deliver
+    Ctrl-S/Ctrl-Q/Ctrl-C/Ctrl-V as input. Quit with ESC.
     """
-    term = TerminalInterface()
-    kb = KeyboardHandler(term)
+    import termios, sys
 
     print("Keyboard test mode — press keys to see parsed events.")
-    print("Quit with Ctrl-Q or ESC.")
+    print("Quit with ESC.")
 
-    # Enter cbreak and disable flow control like the editor does
-    with term.term.cbreak():
-        old_settings: Optional[list[int]] = None
+    term = TerminalInterface()
+    term.setup()
+
+    # Adjust termios flags to avoid flow control/signals
+    old_settings = None
+    try:
+        old_settings = termios.tcgetattr(sys.stdin)
+        new_settings = list(old_settings)
+        new_settings[0] &= ~(termios.IXON | termios.IXOFF)
+        if hasattr(termios, 'IEXTEN'):
+            new_settings[3] &= ~(termios.ISIG | termios.IEXTEN)
+        else:
+            new_settings[3] &= ~termios.ISIG
+        # Disable VLNEXT/DISCARD control chars if present
         try:
-            old_settings = termios.tcgetattr(sys.stdin)
-            new_settings = list(old_settings)
-            new_settings[0] &= ~(termios.IXON | termios.IXOFF)
-            termios.tcsetattr(sys.stdin, termios.TCSANOW, new_settings)
+            cc = list(new_settings[6])
+            if hasattr(termios, 'VLNEXT') and termios.VLNEXT < len(cc):
+                cc[termios.VLNEXT] = b'\x00'[0]
+            if hasattr(termios, 'VDISCARD') and termios.VDISCARD < len(cc):
+                cc[termios.VDISCARD] = b'\x00'[0]
+            new_settings[6] = bytes(cc)
         except Exception:
             pass
+        termios.tcsetattr(sys.stdin, termios.TCSANOW, new_settings)
+    except Exception:
+        pass
 
-        try:
-            while True:
-                ev: Optional[KeyEvent] = kb.get_key_event(timeout=None)
-                if ev is None:
-                    continue
-                # Quit on Ctrl-Q or bare ESC
-                if (ev.is_ctrl and ev.value == 'q') or (ev.key_type.name == 'SPECIAL' and ev.value == 'escape'):
-                    print("Exiting keyboard test.")
-                    break
-                raw = _escape_bytes(ev.raw)
-                # Compose a compact line
-                parts = [
-                    f"type={ev.key_type.value}",
-                    f"value={ev.value}",
-                    f"raw='{raw}'",
-                ]
-                flags = []
-                if ev.is_alt:
-                    flags.append('alt')
-                if ev.is_ctrl:
-                    flags.append('ctrl')
-                if ev.is_shift:
-                    flags.append('shift')
-                if ev.is_sequence:
-                    flags.append('seq')
-                if flags:
-                    parts.append(f"flags={'+'.join(flags)}")
-                if ev.code is not None:
-                    parts.append(f"code={ev.code}")
-                print(" ".join(parts))
-        finally:
-            if old_settings is not None:
-                try:
-                    termios.tcsetattr(sys.stdin, termios.TCSANOW, old_settings)
-                except Exception:
-                    pass
+    kb = KeyboardHandler(term)
+
+    try:
+        while True:
+            ev: KeyEvent | None = kb.get_key_event(timeout=None)
+            if not ev:
+                continue
+            if ev.key_type == KeyType.SPECIAL and ev.value == 'escape':
+                print("Exiting keyboard test.")
+                break
+            raw = _escape_bytes(ev.raw)
+            parts = [f"type={ev.key_type.value}", f"value={ev.value}", f"raw='{raw}'"]
+            flags = []
+            if ev.is_alt:
+                flags.append('alt')
+            if ev.is_ctrl:
+                flags.append('ctrl')
+            if ev.is_shift:
+                flags.append('shift')
+            if ev.is_sequence:
+                flags.append('seq')
+            if flags:
+                parts.append(f"flags={'+'.join(flags)}")
+            if ev.code is not None:
+                parts.append(f"code={ev.code}")
+            print(' '.join(parts))
+    finally:
+        # Restore termios and cleanup terminal
+        if old_settings is not None:
+            try:
+                termios.tcsetattr(sys.stdin, termios.TCSANOW, old_settings)
+            except Exception:
+                pass
+        term.cleanup()
 
 
 def main() -> None:
