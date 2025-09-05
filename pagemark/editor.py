@@ -271,6 +271,8 @@ class Editor:
             "                              Alt-↑/↓    Paragraph back/forward",
             "  Ctrl-P    Print             Ctrl-A     Beginning of line",
             "  Ctrl-W    Word count        Ctrl-E     End of line",
+            "                              Home       Beginning of document",
+            "                              End        End of document",
             "",
             "EDITING",
             "  Ctrl-D    Delete char       Shift-←/→  Extend selection",

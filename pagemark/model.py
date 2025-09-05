@@ -308,6 +308,25 @@ class TextModel:
         self._update_caret_style_from_position()
         self.view.render()
 
+    def move_beginning_of_document(self) -> None:
+        """Move cursor to the beginning of the document (Home)."""
+        self.cursor_position.paragraph_index = 0
+        self.cursor_position.character_index = 0
+        self._update_caret_style_from_position()
+        self.view.render()
+
+    def move_end_of_document(self) -> None:
+        """Move cursor to the end of the document (End)."""
+        if self.paragraphs:
+            last_idx = len(self.paragraphs) - 1
+            self.cursor_position.paragraph_index = last_idx
+            self.cursor_position.character_index = len(self.paragraphs[last_idx])
+        else:
+            self.cursor_position.paragraph_index = 0
+            self.cursor_position.character_index = 0
+        self._update_caret_style_from_position()
+        self.view.render()
+
     def backward_paragraph(self) -> None:
         """Move to beginning of previous non-empty paragraph (M-up).
 

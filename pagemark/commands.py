@@ -81,6 +81,14 @@ class RightWordCommand(MovementCommand):
     def _move(self, editor, key_event):
         editor.model.right_word()
 
+class DocumentHomeCommand(MovementCommand):
+    def _move(self, editor, key_event):
+        editor.model.move_beginning_of_document()
+
+class DocumentEndCommand(MovementCommand):
+    def _move(self, editor, key_event):
+        editor.model.move_end_of_document()
+
 class BackwardParagraphCommand(MovementCommand):
     def _move(self, editor, key_event):
         editor.model.backward_paragraph()
@@ -345,6 +353,8 @@ class CommandRegistry:
         self.register((KeyType.SPECIAL, 'right'), RightCharCommand())
         self.register((KeyType.SPECIAL, 'up'), UpLineCommand())
         self.register((KeyType.SPECIAL, 'down'), DownLineCommand())
+        self.register((KeyType.SPECIAL, 'home'), DocumentHomeCommand())
+        self.register((KeyType.SPECIAL, 'end'), DocumentEndCommand())
         
         # Selection movement commands (Shift+arrow)
         self.register((KeyType.SHIFT_SPECIAL, 'left'), ShiftLeftCommand())
