@@ -27,9 +27,6 @@ build-backend = "hatchling.build"
 allow-direct-references = true
 
 [tool.hatch.build.hooks.custom]
-commands = [
-  "python build_tools/write_build_info.py",
-]
 
 [tool.hatch.build.targets.wheel]
 artifacts = [
