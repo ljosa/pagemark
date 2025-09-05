@@ -2,6 +2,7 @@
 
 from typing import List, Tuple, Optional
 from .view import render_paragraph
+from .view import _get_hanging_indent_width
 
 
 class PrintFormatter:
@@ -56,12 +57,21 @@ class PrintFormatter:
                     # Build contiguous runs for this 65-char line
                     runs: List[Tuple[int, str, int]] = []
                     if line:
-                        x = 0
+                        # Determine visual indent for wrapped bullet/numbered paragraphs
+                        visual_indent = 0
+                        if li > 0:
+                            hiw = _get_hanging_indent_width(paragraph)
+                            if hiw > 0:
+                                visual_indent = hiw
+                        x = max(visual_indent, 0)
                         while x < len(line):
-                            flags = slice_styles[x] if x < len(slice_styles) else 0
+                            # Map visual x to content index (excluding visual indent)
+                            content_idx = x - visual_indent if x >= visual_indent else 0
+                            flags = slice_styles[content_idx] if content_idx < len(slice_styles) else 0
                             j = x
                             while j < len(line):
-                                f2 = slice_styles[j] if j < len(slice_styles) else 0
+                                ci = j - visual_indent if j >= visual_indent else 0
+                                f2 = slice_styles[ci] if ci < len(slice_styles) else 0
                                 if f2 != flags:
                                     break
                                 j += 1

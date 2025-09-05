@@ -195,15 +195,19 @@ class Editor:
         )
 
     def _snapshot_state(self) -> ModelSnapshot:
-        # Copy paragraphs list (strings are immutable)
+        # Copy paragraphs and styles (deep copy masks)
         paragraphs_copy = list(self.model.paragraphs)
+        styles_copy = [list(row) for row in getattr(self.model, 'styles', [])]
         cp = self.model.cursor_position
         sel_start = self.model.selection_start
         sel_end = self.model.selection_end
         start_tuple = None if sel_start is None else (sel_start.paragraph_index, sel_start.character_index)
         end_tuple = None if sel_end is None else (sel_end.paragraph_index, sel_end.character_index)
+        caret_style = getattr(self.model, 'caret_style', 0)
         return ModelSnapshot(
             paragraphs=paragraphs_copy,
+            styles=styles_copy,
+            caret_style=caret_style,
             cursor_paragraph_index=cp.paragraph_index,
             cursor_character_index=cp.character_index,
             selection_start=start_tuple,
@@ -213,6 +217,10 @@ class Editor:
     def _apply_snapshot(self, snap: ModelSnapshot):
         # Restore model state and redraw
         self.model.paragraphs = list(snap.paragraphs)
+        if hasattr(snap, 'styles') and snap.styles is not None:
+            self.model.styles = [list(row) for row in snap.styles]
+        if hasattr(snap, 'caret_style'):
+            self.model.caret_style = snap.caret_style
         self.model.cursor_position.paragraph_index = snap.cursor_paragraph_index
         self.model.cursor_position.character_index = snap.cursor_character_index
         if snap.selection_start is None:
@@ -269,6 +277,7 @@ class Editor:
             "  Ctrl-^    Center line       Ctrl-X     Cut line",
             "  Ctrl-T    Transpose chars   Ctrl-C     Copy line",
             "  Alt-Bksp  Delete word       Ctrl-V     Paste",
+            "  Ctrl-B    Bold toggle       Ctrl-U     Underline toggle",
             "",
             "UNDO",
             "  Ctrl-Z    Undo              Ctrl-Y     Redo",
@@ -360,22 +369,7 @@ class Editor:
 
     def _handle_backspace(self):
         """Handle backspace key - delete character before cursor."""
-        if self.model.cursor_position.character_index > 0:
-            # Delete within paragraph including style mask
-            para_idx = self.model.cursor_position.paragraph_index
-            char_idx = self.model.cursor_position.character_index
-            para = self.model.paragraphs[para_idx]
-            self.model.paragraphs[para_idx] = para[:char_idx-1] + para[char_idx:]
-            # Remove style at deleted position
-            if hasattr(self.model, 'styles'):
-                st = self.model.styles[para_idx]
-                self.model.styles[para_idx] = st[:char_idx-1] + st[char_idx:]
-            self.model.cursor_position.character_index -= 1
-            self.view.render()
-        elif self.model.cursor_position.paragraph_index > 0:
-            # Join with previous paragraph (styles handled in model join)
-            self.model._join_with_previous_paragraph()
-            self.view.render()
+        self.model.backspace()
 
     def load_file(self, filename: str):
         """Load a file into the editor.

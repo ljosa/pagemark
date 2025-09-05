@@ -5,7 +5,7 @@ Pagemark is a keyboard‑driven text editor/word processor for the terminal, wit
 
 Install (recommended: uv)
 - Install via uv tool (global shim):
-  - `uv tool install --from git+ssh://git@github.com/ljosa/pagemark.git pagemark`
+  - `uv tool install --from https://github.com/ljosa/pagemark.git pagemark`
 - Run: `pagemark [filename]`
 
 About uv
@@ -26,4 +26,3 @@ Requirements
 Notes
 - The app installs a `pagemark` console command. You can also run `python -m pagemark` from a checkout.
 - If the terminal is too narrow (<65 cols), Pagemark shows a friendly prompt to resize.
-

@@ -449,29 +449,43 @@ class ToggleBoldCommand(EditCommand):
             if (start.paragraph_index > end.paragraph_index or
                 (start.paragraph_index == end.paragraph_index and start.character_index > end.character_index)):
                 start, end = end, start
-            # Set bold for all selected characters (mixed selection sets attribute)
             model._sync_styles_length()
-            if start.paragraph_index == end.paragraph_index:
-                pi = start.paragraph_index
+            # Determine if every character has the flag
+            def every_has_flag(pi, start_idx, end_idx):
                 st = model.styles[pi]
-                for i in range(start.character_index, min(end.character_index, len(st))):
-                    st[i] |= flag
-            else:
-                # First paragraph segment
-                pi = start.paragraph_index
+                end_idx = min(end_idx, len(st))
+                for i in range(start_idx, end_idx):
+                    if (st[i] & flag) == 0:
+                        return False
+                return True
+            def apply_flag(pi, start_idx, end_idx, set_flag: bool):
                 st = model.styles[pi]
-                for i in range(start.character_index, len(st)):
-                    st[i] |= flag
-                # Middle paragraphs
-                for pi in range(start.paragraph_index+1, end.paragraph_index):
-                    st = model.styles[pi]
-                    for i in range(0, len(st)):
+                end_idx = min(end_idx, len(st))
+                for i in range(start_idx, end_idx):
+                    if set_flag:
                         st[i] |= flag
-                # Last paragraph segment
-                pi = end.paragraph_index
-                st = model.styles[pi]
-                for i in range(0, min(end.character_index, len(st))):
-                    st[i] |= flag
+                    else:
+                        st[i] &= ~flag
+            # Compute whether to clear or set
+            all_have = True
+            if start.paragraph_index == end.paragraph_index:
+                all_have = every_has_flag(start.paragraph_index, start.character_index, end.character_index)
+            else:
+                # First partial
+                all_have = all_have and every_has_flag(start.paragraph_index, start.character_index, len(model.styles[start.paragraph_index]))
+                # Middles
+                for pi in range(start.paragraph_index+1, end.paragraph_index):
+                    all_have = all_have and every_has_flag(pi, 0, len(model.styles[pi]))
+                # Last partial
+                all_have = all_have and every_has_flag(end.paragraph_index, 0, end.character_index)
+            # Apply
+            if start.paragraph_index == end.paragraph_index:
+                apply_flag(start.paragraph_index, start.character_index, end.character_index, set_flag=not all_have)
+            else:
+                apply_flag(start.paragraph_index, start.character_index, len(model.styles[start.paragraph_index]), set_flag=not all_have)
+                for pi in range(start.paragraph_index+1, end.paragraph_index):
+                    apply_flag(pi, 0, len(model.styles[pi]), set_flag=not all_have)
+                apply_flag(end.paragraph_index, 0, end.character_index, set_flag=not all_have)
         else:
             # Toggle caret style bit
             model.caret_style ^= flag
@@ -487,23 +501,35 @@ class ToggleUnderlineCommand(EditCommand):
                 (start.paragraph_index == end.paragraph_index and start.character_index > end.character_index)):
                 start, end = end, start
             model._sync_styles_length()
-            if start.paragraph_index == end.paragraph_index:
-                pi = start.paragraph_index
+            def every_has_flag(pi, start_idx, end_idx):
                 st = model.styles[pi]
-                for i in range(start.character_index, min(end.character_index, len(st))):
-                    st[i] |= flag
-            else:
-                pi = start.paragraph_index
+                end_idx = min(end_idx, len(st))
+                for i in range(start_idx, end_idx):
+                    if (st[i] & flag) == 0:
+                        return False
+                return True
+            def apply_flag(pi, start_idx, end_idx, set_flag: bool):
                 st = model.styles[pi]
-                for i in range(start.character_index, len(st)):
-                    st[i] |= flag
-                for pi in range(start.paragraph_index+1, end.paragraph_index):
-                    st = model.styles[pi]
-                    for i in range(0, len(st)):
+                end_idx = min(end_idx, len(st))
+                for i in range(start_idx, end_idx):
+                    if set_flag:
                         st[i] |= flag
-                pi = end.paragraph_index
-                st = model.styles[pi]
-                for i in range(0, min(end.character_index, len(st))):
-                    st[i] |= flag
+                    else:
+                        st[i] &= ~flag
+            all_have = True
+            if start.paragraph_index == end.paragraph_index:
+                all_have = every_has_flag(start.paragraph_index, start.character_index, end.character_index)
+            else:
+                all_have = all_have and every_has_flag(start.paragraph_index, start.character_index, len(model.styles[start.paragraph_index]))
+                for pi in range(start.paragraph_index+1, end.paragraph_index):
+                    all_have = all_have and every_has_flag(pi, 0, len(model.styles[pi]))
+                all_have = all_have and every_has_flag(end.paragraph_index, 0, end.character_index)
+            if start.paragraph_index == end.paragraph_index:
+                apply_flag(start.paragraph_index, start.character_index, end.character_index, set_flag=not all_have)
+            else:
+                apply_flag(start.paragraph_index, start.character_index, len(model.styles[start.paragraph_index]), set_flag=not all_have)
+                for pi in range(start.paragraph_index+1, end.paragraph_index):
+                    apply_flag(pi, 0, len(model.styles[pi]), set_flag=not all_have)
+                apply_flag(end.paragraph_index, 0, end.character_index, set_flag=not all_have)
         else:
             model.caret_style ^= flag

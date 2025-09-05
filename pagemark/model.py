@@ -207,6 +207,21 @@ class TextModel:
         elif in_view:
             self.view.render()
 
+    def backspace(self) -> None:
+        """Delete character before cursor, maintaining styles."""
+        para_idx = self.cursor_position.paragraph_index
+        char_idx = self.cursor_position.character_index
+        if char_idx > 0:
+            para = self.paragraphs[para_idx]
+            self.paragraphs[para_idx] = para[:char_idx-1] + para[char_idx:]
+            self._sync_styles_length()
+            st = self.styles[para_idx]
+            self.styles[para_idx] = st[:char_idx-1] + st[char_idx:]
+            self.cursor_position.character_index -= 1
+        elif para_idx > 0:
+            self._join_with_previous_paragraph()
+        self.view.render()
+
     def _insert_text_with_styles(self, parts: list[str], parts_styles: list[list[int]]):
         before_view = self.cursor_position.paragraph_index < self.view.start_paragraph_index
         in_view = self.view.start_paragraph_index <= self.cursor_position.paragraph_index < self.view.end_paragraph_index
@@ -674,6 +689,10 @@ class TextModel:
             
             # Delete from cursor to end_pos
             self.paragraphs[self.cursor_position.paragraph_index] = para[:pos] + para[end_pos:]
+            # Maintain styles
+            self._sync_styles_length()
+            st = self.styles[self.cursor_position.paragraph_index]
+            self.styles[self.cursor_position.paragraph_index] = st[:pos] + st[end_pos:]
         elif self.cursor_position.paragraph_index < len(self.paragraphs) - 1:
             # At end of paragraph, join with next paragraph
             self._join_with_next_paragraph()
@@ -700,6 +719,10 @@ class TextModel:
             
             # Delete from pos to original position
             self.paragraphs[self.cursor_position.paragraph_index] = para[:pos] + para[original_pos:]
+            # Maintain styles
+            self._sync_styles_length()
+            st = self.styles[self.cursor_position.paragraph_index]
+            self.styles[self.cursor_position.paragraph_index] = st[:pos] + st[original_pos:]
             self.cursor_position.character_index = pos
         elif self.cursor_position.paragraph_index > 0:
             # At start of paragraph, join with previous paragraph
@@ -715,6 +738,10 @@ class TextModel:
         if pos < len(para):
             # Delete character at cursor
             self.paragraphs[self.cursor_position.paragraph_index] = para[:pos] + para[pos+1:]
+            # Maintain styles
+            self._sync_styles_length()
+            st = self.styles[self.cursor_position.paragraph_index]
+            self.styles[self.cursor_position.paragraph_index] = st[:pos] + st[pos+1:]
         elif self.cursor_position.paragraph_index + 1 < len(self.paragraphs):
             # At end of paragraph, join with next paragraph
             self._join_with_next_paragraph()
@@ -954,6 +981,10 @@ class TextModel:
                     break
         if visual_line_end is not None and char_idx < visual_line_end:
             self.paragraphs[para_idx] = para[:char_idx] + para[visual_line_end:]
+            # Maintain styles
+            self._sync_styles_length()
+            st = self.styles[para_idx]
+            self.styles[para_idx] = st[:char_idx] + st[visual_line_end:]
         # else: no change
         
         self.view.render()

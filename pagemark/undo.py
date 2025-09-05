@@ -5,10 +5,12 @@ from typing import Optional
 @dataclass
 class ModelSnapshot:
     paragraphs: list[str]
-    cursor_paragraph_index: int
-    cursor_character_index: int
-    selection_start: Optional[tuple[int, int]]
-    selection_end: Optional[tuple[int, int]]
+    styles: Optional[list[list[int]]] = None
+    caret_style: int = 0
+    cursor_paragraph_index: int = 0
+    cursor_character_index: int = 0
+    selection_start: Optional[tuple[int, int]] = None
+    selection_end: Optional[tuple[int, int]] = None
 
 
 @dataclass
@@ -60,4 +62,3 @@ class UndoManager:
         # Return entry to undo stack
         self._undo_stack.append(entry)
         return True
-

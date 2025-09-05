@@ -120,42 +120,43 @@ showpage
                     escaped_line = self._escape_postscript(line)
                     ps_content.append(f"({escaped_line}) showline\n")
                 else:
-                    # Styled drawing: iterate runs (start_x absolute in 85-col line)
-                    # Track current x position to know how many spaces to add between segments
+                    # Styled drawing: interleave unstyled text from the source line with styled runs.
+                    # Track current x column in full 85-col line
                     current_x = 0
-                    for (start_x, seg_text, flags) in runs:
+                    # Ensure runs are sorted by start_x
+                    runs_sorted = sorted(runs, key=lambda r: r[0])
+                    for (start_x, seg_text, flags) in runs_sorted:
                         b = bool(flags & 1)
                         u = bool(flags & 2)
-                        
-                        # Add spaces to reach the start position
+                        # Emit any unstyled content between current_x and start_x from the original line
                         if start_x > current_x:
-                            spaces_needed = start_x - current_x
-                            ps_content.append(f"({' ' * spaces_needed}) show\n")
+                            gap_text = line[current_x:start_x]
+                            if gap_text:
+                                ps_content.append("/Courier-ISOLatin1 findfont 12 scalefont setfont\n")
+                                ps_content.append(f"({self._escape_postscript(gap_text)}) show\n")
                             current_x = start_x
-                        
-                        # Set font for this segment
+                        # Set font for this styled segment
                         if b:
                             ps_content.append("/Courier-Bold-ISOLatin1 findfont 12 scalefont setfont\n")
                         else:
                             ps_content.append("/Courier-ISOLatin1 findfont 12 scalefont setfont\n")
-                        
-                        # Show the text segment
+                        # Show the text segment (track underline start/end)
                         if u:
-                            # Save position before showing text for underline
                             ps_content.append("currentpoint /uy exch def /ux exch def\n")
                         ps_content.append(f"({self._escape_postscript(seg_text)}) show\n")
-                        
-                        # Draw underline if needed
                         if u:
                             ps_content.append("currentpoint /uy2 exch def /ux2 exch def\n")
                             ps_content.append("gsave\n")
                             ps_content.append("newpath ux uy 2 sub moveto ux2 uy 2 sub lineto stroke\n")
                             ps_content.append("grestore\n")
-                            ps_content.append("ux2 uy2 moveto\n")  # Restore position after stroke
-                        
-                        # Update current position
+                            ps_content.append("ux2 uy2 moveto\n")
                         current_x = start_x + len(seg_text)
-                    
+                    # Emit any trailing unstyled content to end of line
+                    if current_x < len(line):
+                        tail_text = line[current_x:]
+                        if tail_text:
+                            ps_content.append("/Courier-ISOLatin1 findfont 12 scalefont setfont\n")
+                            ps_content.append(f"({self._escape_postscript(tail_text)}) show\n")
                     # Move to next line (equivalent to showline's move)
                     ps_content.append("0 currentpoint exch pop 12 sub moveto\n")
             

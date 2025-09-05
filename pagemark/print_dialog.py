@@ -103,7 +103,6 @@ class PrintDialog:
             # Apply initial spacing from session if provided
             try:
                 if hasattr(self, 'double_spacing'):
-                    styles = getattr(self, 'model', None)
                     styles = getattr(self.model, 'styles', None)
                     self.formatter = PrintFormatter(self.model.paragraphs, double_spacing=self.double_spacing, styles=styles)
                     self.pages = self.formatter.format_pages()
@@ -146,7 +145,8 @@ class PrintDialog:
                 # Toggle spacing: 'S'
                 if ev.key_type == KeyType.REGULAR and ev.value in ('s', 'S'):
                     self.double_spacing = not self.double_spacing
-                    self.formatter = PrintFormatter(self.model.paragraphs, double_spacing=self.double_spacing)
+                    styles = getattr(self.model, 'styles', None)
+                    self.formatter = PrintFormatter(self.model.paragraphs, double_spacing=self.double_spacing, styles=styles)
                     self.pages = self.formatter.format_pages()
                     self.preview = PrintPreview(self.pages)
                     # Clamp current page if needed
