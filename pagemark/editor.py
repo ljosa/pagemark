@@ -55,7 +55,7 @@ class Editor:
         del signum, frame # Unused
         # Write to pipe to wake up select()
         os.write(self._resize_pipe_w, EditorConstants.RESIZE_PIPE_MARKER)
-    
+
     def _handle_sigint(self, signum, frame):
         """Handle SIGINT (Ctrl-C) - treat as copy command."""
         del signum, frame # Unused
@@ -92,10 +92,10 @@ class Editor:
                     termios.tcsetattr(sys.stdin, termios.TCSANOW, new_settings)
                 except (termios.error, AttributeError, OSError):
                     pass
-                
+
                 # Initial draw
                 need_draw = True
-                
+
                 while self.running:
                     # Only draw when needed
                     if need_draw:
@@ -115,13 +115,13 @@ class Editor:
                                 self._rendered_once = True
                             # Draw current state
                             self._draw()
-                        
+
                         need_draw = False
 
                     # Wait for input on stdin or resize pipe
                     # Use file descriptor 0 for stdin to work in all environments
                     ready, _, _ = select.select([0, self._resize_pipe_r], [], [])
-                    
+
                     if self._resize_pipe_r in ready:
                         # Clear the pipe (resize wake)
                         os.read(self._resize_pipe_r, 1024)
@@ -137,7 +137,7 @@ class Editor:
                             # Process all keys normally
                             self._handle_key_event(key_event)
                             need_draw = True
-                
+
                 # Restore terminal settings before exiting cbreak
                 if old_settings:
                     try:
@@ -163,7 +163,7 @@ class Editor:
         if self.help_visible:
             self._draw_help()
             return
-            
+
         # Calculate left margin for centering
         left_margin = (self.terminal.width - self.VIEW_WIDTH) // 2
 
@@ -180,7 +180,7 @@ class Editor:
 
         # Get selection ranges for highlighting
         selection_ranges = self.view.get_selection_ranges()
-        
+
         self.terminal.draw_lines(
             self.view.lines,
             self.view.visual_cursor_y,
@@ -232,16 +232,16 @@ class Editor:
             EditorConstants.TERMINAL_TOO_NARROW_MESSAGE.format(EditorConstants.MIN_TERMINAL_WIDTH),
             EditorConstants.CURRENT_WIDTH_MESSAGE.format(self.terminal.width)
         )
-    
+
     def _draw_help(self):
         """Draw the help screen."""
         term = self.terminal.term
-        
+
         # Clear screen
         print(term.clear(), end='')
-        
+
         # Draw centered, bold title at top
-        title = "PAGEMARK HELP"
+        title = "Help"
         # Be defensive: tests may mock term without setting width
         try:
             width = int(getattr(term, 'width', 80))
@@ -250,7 +250,7 @@ class Editor:
         title_pos = (width - len(title)) // 2
         # Use string coercion to avoid MagicMock arithmetic swallowing content in tests
         print(f"{term.move(1, title_pos)}{term.bold}{title}{term.normal}", end='')
-        
+
         # Help content
         help_lines = [
             "",
@@ -258,46 +258,45 @@ class Editor:
             "  Ctrl-S    Save              Alt-←/→    Word left/right",
             "  Ctrl-Q    Quit              Alt-B/F    Word left/right",
             "  Ctrl-P    Print             Ctrl-A     Beginning of line",
-            "  Ctrl-W    Word count         Ctrl-E     End of line",
-            "  F1        Help",
+            "  Ctrl-W    Word count        Ctrl-E     End of line",
             "",
             "EDITING",
-            "  Ctrl-D    Delete char",
-            "  Ctrl-K    Kill line",
-            "  Ctrl-^    Center line",
-            "  Ctrl-T    Transpose chars",
-            "  Ctrl-X    Cut line",
-            "  Ctrl-C    Copy line",
-            "  Ctrl-V    Paste",
-            "  Alt-Bksp  Delete word"
+            "  Ctrl-D    Delete char       Shift-←/→  Extend selection",
+            "  Ctrl-K    Kill line         Shift-↑/↓  Extend selection",
+            "  Ctrl-^    Center line       Ctrl-X     Cut line",
+            "  Ctrl-T    Transpose chars   Ctrl-C     Copy line",
+            "  Alt-Bksp  Delete word       Ctrl-V     Paste",
+            "",
+            "UNDO",
+            "  Ctrl-Z    Undo              Ctrl-Y     Redo",
         ]
-        
+
         # Center the help content vertically (accounting for title)
         try:
             height = int(getattr(term, 'height', 24))
         except (TypeError, ValueError):
             height = 24
         content_start_y = max(3, (height - len(help_lines)) // 2)
-        
+
         # Calculate horizontal centering
         max_line_length = max(len(line) for line in help_lines)
         left_margin = max(0, (width - max_line_length) // 2)
-        
+
         # Draw help content
         for i, line in enumerate(help_lines):
             print(f"{term.move(content_start_y + i, left_margin)}{line}", end='')
-        
+
         # Draw status line at bottom
         status_text = " Press any key to continue"
         print(f"{term.move(term.height - 1, 0)}{status_text}", end='')
-        
+
         # Hide cursor
         print(term.hide_cursor, end='', flush=True)
-    
+
     def show_help(self):
         """Show the help screen."""
         self.help_visible = True
-    
+
     def hide_help(self):
         """Hide the help screen and return to editor."""
         self.help_visible = False
@@ -315,7 +314,7 @@ class Editor:
         if self.help_visible:
             self.hide_help()
             return
-            
+
         # Clear status message on any keypress (except in prompt mode)
         if self.status_message and not self.prompt_mode:
             self.status_message = None
@@ -337,10 +336,10 @@ class Editor:
         was_modified = self.command_registry.execute(self, key_event)
         if was_modified:
             self.modified = True
-    
+
     def _handle_prompt_mode(self, key_event: KeyEvent) -> bool:
         """Handle input in prompt mode.
-        
+
         Returns:
             True if in prompt mode and event was handled
         """
@@ -396,35 +395,35 @@ class Editor:
 
         Args:
             filename: Path to save file to
-        
+
         Returns:
             True if save succeeded, False otherwise
         """
         try:
             content = '\n'.join(self.model.paragraphs)
-            
+
             # Write to a temporary file in the same directory for atomic save
             # This ensures we're on the same filesystem for the rename operation
             dir_name = os.path.dirname(filename) or '.'
-            
+
             # Create temp file with same suffix as target
             suffix = os.path.splitext(filename)[1]
-            with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', 
-                                           dir=dir_name, suffix=suffix, 
+            with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8',
+                                           dir=dir_name, suffix=suffix,
                                            delete=False) as temp_file:
                 temp_filename = temp_file.name
                 temp_file.write(content)
                 temp_file.flush()
                 os.fsync(temp_file.fileno())  # Ensure data is written to disk
-            
+
             # Atomic rename - this is atomic on POSIX systems
             # On Windows, it will overwrite existing file atomically
             os.replace(temp_filename, filename)
-            
+
             self.filename = filename
             self.modified = False
             return True
-            
+
         except PermissionError:
             self.status_message = f"Error: Permission denied saving {filename}"
             # Clean up temp file if it exists
@@ -455,7 +454,7 @@ class Editor:
                 except:
                     pass
             return False
-    
+
     def _handle_save(self):
         """Handle Ctrl-S save command."""
         if self.filename:
@@ -466,7 +465,7 @@ class Editor:
             # Need to prompt for filename
             self.prompt_mode = 'save_filename'
             self.prompt_input = ""
-    
+
     def _handle_filename_prompt(self, key_event):
         """Handle keypress during filename prompt."""
         if (key_event.key_type == KeyType.SPECIAL and key_event.value == 'escape') or \
@@ -493,7 +492,7 @@ class Editor:
             char = key_event.value
             if ord(char) >= 32:
                 self.prompt_input += char
-    
+
     def _handle_ps_filename_prompt(self, key_event):
         """Handle keypress during PS filename prompt."""
         if (key_event.key_type == KeyType.SPECIAL and key_event.value == 'escape') or \
@@ -519,7 +518,7 @@ class Editor:
             char = key_event.value
             if ord(char) >= 32:
                 self.prompt_input += char
-    
+
     def _handle_quit_confirm(self, key_event):
         """Handle keypress during quit confirmation."""
         if key_event.key_type == KeyType.REGULAR:
@@ -539,12 +538,12 @@ class Editor:
             else:
                 # Cancel quit
                 self.prompt_mode = None
-    
+
     def _handle_print(self):
         """Handle Ctrl-P print command."""
         # Clear screen for dialog
         self.terminal.clear_screen()
-        
+
         # Show print dialog
         dialog = PrintDialog(self.model, self.terminal)
         # Initialize dialog spacing from session and refresh pages/preview
@@ -554,7 +553,7 @@ class Editor:
         except Exception:
             pass
         result = dialog.show()
-        
+
         # Process the result
         if result.action == PrintAction.CANCEL:
             # User cancelled, just return to editor
@@ -572,14 +571,14 @@ class Editor:
         # Persist spacing choice in session and update view
         self.spacing_double = dialog.double_spacing
         self.view.set_double_spacing(self.spacing_double)
-        
+
         # Force redraw after returning from dialog
         if hasattr(self, '_rendered_once'):
             delattr(self, '_rendered_once')
-    
+
     def _print_to_printer(self, pages, printer_name, double_sided):
         """Submit print job to printer.
-        
+
         Args:
             pages: Formatted pages to print.
             printer_name: Name of the printer.
@@ -588,19 +587,19 @@ class Editor:
         # Show progress message
         self.status_message = f"Printing to {printer_name}..."
         self._draw()
-        
+
         # Perform the print operation
         output = PrintOutput()
         success, error = output.print_to_printer(pages, printer_name, double_sided)
-        
+
         if success:
             self.status_message = f"✓ Successfully printed to {printer_name}"
         else:
             self.status_message = f"✗ Print failed: {error}"
-    
+
     def _save_to_ps(self, pages, filename):
         """Save pages to PostScript file.
-        
+
         Args:
             pages: Formatted pages to save.
             filename: Output PS filename.
@@ -608,17 +607,17 @@ class Editor:
         # Show progress message
         self.status_message = f"Saving PS to {filename}..."
         self._draw()
-        
+
         # Validate path first
         output = PrintOutput()
         valid, error = output.validate_output_path(filename)
         if not valid:
             self.status_message = f"✗ {error}"
             return
-        
+
         # Perform the save operation
         success, message = output.save_to_file(pages, filename)
-        
+
         if success:
             if message:  # If there's a message
                 self.status_message = f"✓ {message}"
