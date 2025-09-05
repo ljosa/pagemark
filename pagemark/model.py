@@ -298,26 +298,37 @@ class TextModel:
     def right_word(self):
         """Move cursor forward by one word (Emacs-style)."""
         para = self.paragraphs[self.cursor_position.paragraph_index]
-        pos = self.cursor_position.character_index
+        start = self.cursor_position.character_index
+        pos = start
+        para_len = len(para)
+        # Are we at the start of a word?
+        at_word_start = (
+            start < para_len
+            and not para[start].isspace()
+            and (start == 0 or para[start - 1].isspace())
+        )
         
         # Skip current word characters
-        while pos < len(para) and not para[pos].isspace():
+        while pos < para_len and not para[pos].isspace():
             pos += 1
         
         # Skip whitespace
-        while pos < len(para) and para[pos].isspace():
+        while pos < para_len and para[pos].isspace():
             pos += 1
         
-        if pos < len(para):
+        if pos < para_len:
             # Found next word in same paragraph
             self.cursor_position.character_index = pos
-        elif self.cursor_position.paragraph_index + 1 < len(self.paragraphs):
-            # Move to start of next paragraph
-            self.cursor_position.paragraph_index += 1
-            self.cursor_position.character_index = 0
         else:
-            # At end of document
-            self.cursor_position.character_index = len(para)
+            # Reached end of paragraph while scanning
+            if start >= para_len and self.cursor_position.paragraph_index + 1 < len(self.paragraphs):
+                # Started at end of paragraph: move to next paragraph start
+                self.cursor_position.paragraph_index += 1
+                self.cursor_position.character_index = 0
+            else:
+                # Otherwise stop at end of current paragraph (including when starting
+                # at the first letter of the last word)
+                self.cursor_position.character_index = para_len
         
         self.view.render()
     

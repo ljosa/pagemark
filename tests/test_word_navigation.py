@@ -48,10 +48,10 @@ def test_right_word_across_paragraphs():
     assert model.cursor_position.character_index == 6  # Start of "paragraph"
     assert model.cursor_position.paragraph_index == 0
     
-    model.right_word()  
-    # Should move to next paragraph since we're at the end
-    assert model.cursor_position.paragraph_index == 1
-    assert model.cursor_position.character_index == 0  # Start of next para
+    model.right_word()
+    # From start of last word, move to end of paragraph (not next)
+    assert model.cursor_position.paragraph_index == 0
+    assert model.cursor_position.character_index == len("first paragraph")
 
 
 def test_left_word_basic():
