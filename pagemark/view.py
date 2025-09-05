@@ -124,8 +124,15 @@ class TerminalTextView(TextView):
     visual_cursor_y: int = 0
     visual_cursor_x: int = 0  # Store visual horizontal position
     desired_x: int = 0  # Desired X position for up/down navigation
-    LINES_PER_PAGE: int = EditorConstants.LINES_PER_PAGE  # Standard lines per printed page
+    LINES_PER_PAGE: int = EditorConstants.LINES_PER_PAGE  # Base lines per printed page
     CONTEXT_LINES: int = 2  # Overlap context lines when paging
+    _double_spacing: bool = False
+
+    def set_double_spacing(self, enabled: bool) -> None:
+        self._double_spacing = bool(enabled)
+
+    def _effective_lines_per_page(self) -> int:
+        return self.LINES_PER_PAGE // 2 if self._double_spacing else self.LINES_PER_PAGE
 
     def _create_page_break_line(self, page_num: int) -> str:
         """Create a centered page break line with page number."""
@@ -139,20 +146,22 @@ class TerminalTextView(TextView):
     
     def _should_add_page_break(self, doc_line: int) -> bool:
         """Check if a page break should be added after the given document line."""
+        lines_per_page = self._effective_lines_per_page()
         # First check is for lines at the end of first paragraph
-        if (doc_line + 1) % self.LINES_PER_PAGE == 0 and doc_line > 0:
+        if (doc_line + 1) % lines_per_page == 0 and doc_line > 0:
             return True
         # Second check is for lines in remaining paragraphs
-        if doc_line % self.LINES_PER_PAGE == (self.LINES_PER_PAGE - 1) and doc_line >= (self.LINES_PER_PAGE - 1):
+        if doc_line % lines_per_page == (lines_per_page - 1) and doc_line >= (lines_per_page - 1):
             return True
         return False
     
     def _calculate_page_number(self, doc_line: int) -> int:
         """Calculate the page number for a page break after the given line."""
-        if (doc_line + 1) % self.LINES_PER_PAGE == 0:
-            return (doc_line + 1) // self.LINES_PER_PAGE + 1
+        lpp = self._effective_lines_per_page()
+        if (doc_line + 1) % lpp == 0:
+            return (doc_line + 1) // lpp + 1
         else:
-            return (doc_line // self.LINES_PER_PAGE) + 2
+            return (doc_line // lpp) + 2
 
     def _get_paragraph_line_count(self, paragraph_index: int) -> int:
         """Get the number of lines in a rendered paragraph."""
@@ -349,8 +358,9 @@ class TerminalTextView(TextView):
         
         # Calculate number of page breaks between start of view and cursor
         page_breaks_before = 0
+        lpp = self._effective_lines_per_page()
         for line_num in range(doc_line_start, cursor_doc_line):
-            if line_num > 0 and line_num % self.LINES_PER_PAGE == 0:
+            if line_num > 0 and line_num % lpp == 0:
                 page_breaks_before += 1
         
         # Calculate visual Y position
@@ -400,7 +410,7 @@ class TerminalTextView(TextView):
         
         # Account for page breaks when centering
         cursor_doc_line = self._get_document_line_number(self.model.cursor_position.paragraph_index, line_index)
-        page_breaks_before = cursor_doc_line // self.LINES_PER_PAGE
+        page_breaks_before = cursor_doc_line // self._effective_lines_per_page()
         
         half_rows = (self.num_rows - page_breaks_before) // 2  # Adjust for page breaks
         self.first_paragraph_line_offset = line_index - half_rows  # Could be negative

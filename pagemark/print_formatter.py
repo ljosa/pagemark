@@ -24,10 +24,11 @@ class PrintFormatter:
     # Page number position (1/2" from top = line 3, 0-indexed)
     PAGE_NUMBER_LINE = 3  # Line 4 in 1-indexed terms
     
-    def __init__(self, paragraphs: List[str]):
+    def __init__(self, paragraphs: List[str], double_spacing: bool = False):
         """Initialize formatter with document paragraphs."""
         self.paragraphs = paragraphs
         self.pages: List[List[str]] = []
+        self.double_spacing = bool(double_spacing)
     
     def format_pages(self) -> List[List[str]]:
         """Format paragraphs into full 85x66 pages with margins.
@@ -62,19 +63,28 @@ class PrintFormatter:
                     page.append(" " * self.FULL_PAGE_WIDTH)
             
             # Text area (lines 6-59)
-            for i in range(self.TEXT_HEIGHT):
-                if text_line_index < len(text_lines):
-                    # Add text line with left and right margins
-                    text_line = text_lines[text_line_index]
-                    # Pad text to TEXT_WIDTH if needed
-                    text_line = text_line.ljust(self.TEXT_WIDTH)
-                    # Add margins
-                    full_line = " " * self.LEFT_MARGIN + text_line + " " * self.RIGHT_MARGIN
-                    page.append(full_line)
-                    text_line_index += 1
-                else:
-                    # Empty text line with margins
-                    page.append(" " * self.FULL_PAGE_WIDTH)
+            if not self.double_spacing:
+                for i in range(self.TEXT_HEIGHT):
+                    if text_line_index < len(text_lines):
+                        text_line = text_lines[text_line_index].ljust(self.TEXT_WIDTH)
+                        full_line = " " * self.LEFT_MARGIN + text_line + " " * self.RIGHT_MARGIN
+                        page.append(full_line)
+                        text_line_index += 1
+                    else:
+                        page.append(" " * self.FULL_PAGE_WIDTH)
+            else:
+                # Double spacing: place text on every other line in text area
+                placed = 0
+                slots = self.TEXT_HEIGHT // 2
+                for i in range(self.TEXT_HEIGHT):
+                    if i % 2 == 0 and text_line_index < len(text_lines) and placed < slots:
+                        text_line = text_lines[text_line_index].ljust(self.TEXT_WIDTH)
+                        full_line = " " * self.LEFT_MARGIN + text_line + " " * self.RIGHT_MARGIN
+                        page.append(full_line)
+                        text_line_index += 1
+                        placed += 1
+                    else:
+                        page.append(" " * self.FULL_PAGE_WIDTH)
             
             # Bottom margin (lines 60-65)
             for i in range(self.BOTTOM_MARGIN):

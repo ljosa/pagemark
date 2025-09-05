@@ -26,6 +26,9 @@ class Editor:
         self.terminal = TerminalInterface()
         self.keyboard = KeyboardHandler(self.terminal)
         self.view = TerminalTextView()
+        # Session settings
+        self.spacing_double: bool = False  # SINGLE by default
+        self.view.set_double_spacing(self.spacing_double)
         # Fixed width for the view from constants
         self.VIEW_WIDTH = EditorConstants.DOCUMENT_WIDTH
         # Initialize view dimensions early
@@ -544,6 +547,12 @@ class Editor:
         
         # Show print dialog
         dialog = PrintDialog(self.model, self.terminal)
+        # Initialize dialog spacing from session and refresh pages/preview
+        # Pass spacing to dialog; actual page/preview rebuild handled in dialog.show()
+        try:
+            dialog.double_spacing = self.spacing_double
+        except Exception:
+            pass
         result = dialog.show()
         
         # Process the result
@@ -559,6 +568,10 @@ class Editor:
             self.prompt_input = result.ps_filename
             # Store pages for later use
             self._pending_print_pages = dialog.pages
+
+        # Persist spacing choice in session and update view
+        self.spacing_double = dialog.double_spacing
+        self.view.set_double_spacing(self.spacing_double)
         
         # Force redraw after returning from dialog
         if hasattr(self, '_rendered_once'):

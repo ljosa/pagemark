@@ -30,7 +30,7 @@ class PrintOptions(NamedTuple):
 class PrintDialog:
     """Interactive print dialog for document printing."""
     
-    def __init__(self, model: TextModel, terminal: TerminalInterface):
+    def __init__(self, model: TextModel, terminal: TerminalInterface, double_spacing: bool = False):
         """Initialize print dialog.
         
         Args:
@@ -41,17 +41,18 @@ class PrintDialog:
         self.terminal = terminal
         self.printer_manager = PrinterManager()
         
-        # Format document into pages
-        self.formatter = PrintFormatter(model.paragraphs)
-        self.pages = self.formatter.format_pages()
-        
-        # Create preview generator
-        self.preview = PrintPreview(self.pages)
-        
         # Dialog state
         self.current_page = 0
         self.selected_output = 0  # Index in output options list
         self.double_sided = True
+        self.double_spacing = bool(double_spacing)
+        
+        # Format document into pages
+        self.formatter = PrintFormatter(model.paragraphs, double_spacing=self.double_spacing)
+        self.pages = self.formatter.format_pages()
+        
+        # Create preview generator
+        self.preview = PrintPreview(self.pages)
         
         # Build output options list (printers + PS File)
         self.output_options = self._build_output_list()
@@ -98,6 +99,17 @@ class PrintDialog:
             # Use the same input stack as the editor
             handler = KeyboardHandler(self.terminal)
 
+            # Apply initial spacing from session if provided
+            try:
+                if hasattr(self, 'double_spacing'):
+                    self.formatter = PrintFormatter(self.model.paragraphs, double_spacing=self.double_spacing)
+                    self.pages = self.formatter.format_pages()
+                    self.preview = PrintPreview(self.pages)
+                    if self.current_page >= len(self.pages):
+                        self.current_page = max(0, len(self.pages) - 1)
+            except Exception:
+                pass
+
             while True:
                 self._render()
                 
@@ -124,6 +136,17 @@ class PrintDialog:
                 # Toggle double-sided: 'D'
                 if ev.key_type == KeyType.REGULAR and ev.value in ('d', 'D'):
                     self.double_sided = not self.double_sided
+                    continue
+
+                # Toggle spacing: 'S'
+                if ev.key_type == KeyType.REGULAR and ev.value in ('s', 'S'):
+                    self.double_spacing = not self.double_spacing
+                    self.formatter = PrintFormatter(self.model.paragraphs, double_spacing=self.double_spacing)
+                    self.pages = self.formatter.format_pages()
+                    self.preview = PrintPreview(self.pages)
+                    # Clamp current page if needed
+                    if self.current_page >= len(self.pages):
+                        self.current_page = max(0, len(self.pages) - 1)
                     continue
 
                 # Page navigation: PageUp/PageDown
@@ -234,6 +257,10 @@ class PrintDialog:
             y += 2
         else:
             y += 2
+        # Spacing option
+        spacing_text = "DOUBLE" if self.double_spacing else "SINGLE"
+        print(term.move(y, left) + f"[S]pacing: {spacing_text}", end='')
+        y += 2
         
         # Separator
         sep_width = min(25, max_width)
