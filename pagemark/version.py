@@ -65,7 +65,7 @@ def _from_embedded_file() -> Optional[BuildInfo]:
         date = getattr(_build_info, "DATE", None)
         if commit or date:
             return BuildInfo(commit=commit, date=date, dirty=False)
-    except Exception:
+    except (ImportError, AttributeError):
         # Missing embedded build info is expected in editable installs
         pass
     return None
@@ -85,8 +85,8 @@ def _from_direct_url() -> Optional[BuildInfo]:
                 # direct_url doesn't include date; leave as None
                 if commit:
                     return BuildInfo(commit=commit, date=None, dirty=False)
-    except Exception:
-        # Absence of PEP 610 metadata is normal outside direct-url installs
+    except (importlib.metadata.PackageNotFoundError, FileNotFoundError, OSError, json.JSONDecodeError, AttributeError, KeyError):
+        # Absence or unreadability of PEP 610 metadata is normal
         pass
     return None
 

@@ -318,6 +318,8 @@ class Editor:
         # Force re-render
         if hasattr(self, '_rendered_once'):
             delattr(self, '_rendered_once')
+        # Invalidate terminal frame since help drew directly to screen
+        self.terminal.invalidate_frame()
 
     def _handle_key_event(self, key_event: KeyEvent) -> None:
         """Handle a keyboard event and update model/view state.

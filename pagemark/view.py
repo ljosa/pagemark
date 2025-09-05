@@ -3,7 +3,7 @@ import re
 # Provide a no-op override decorator on Python < 3.12
 try:
     from typing import override  # type: ignore
-except Exception:  # pragma: no cover - compatibility shim
+except ImportError:  # pragma: no cover - compatibility shim
     def override(func):
         return func
 from .model import TextView, CursorPosition

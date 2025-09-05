@@ -39,10 +39,16 @@ def test_help_dismisses_on_any_key():
         code=None
     )
 
+    # Spy invalidate_frame to ensure we force a redraw after dismissing help
+    from unittest.mock import Mock
+    editor.terminal.invalidate_frame = Mock(side_effect=editor.terminal.invalidate_frame)
+
     editor._handle_key_event(key_event)
 
     # Help should be dismissed
     assert editor.help_visible == False
+    # We should invalidate the cached frame after leaving help
+    assert editor.terminal.invalidate_frame.called
 
 
 def test_help_screen_draw():
