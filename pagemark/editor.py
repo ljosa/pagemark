@@ -340,6 +340,11 @@ class Editor:
         pre_visual_x = getattr(self.view, 'visual_cursor_x', 0)
         pre_lines = getattr(self.view, 'lines', [])
         pre_line = pre_lines[pre_visual_y] if (pre_lines and 0 <= pre_visual_y < len(pre_lines)) else None
+        # Snapshot viewport to detect scroll
+        pre_start_idx = getattr(self.view, 'start_paragraph_index', 0)
+        pre_first_offset = getattr(self.view, 'first_paragraph_line_offset', 0)
+        pre_selection_active = (self.model.selection_start is not None or self.model.selection_end is not None)
+
         # Execute command
         was_modified = self.command_registry.execute(self, key_event)
         if was_modified:
@@ -383,6 +388,31 @@ class Editor:
                         self.terminal.move_cursor(pre_visual_y, self.view.visual_cursor_x, left_margin)
                         # Fast path handled the drawing
                         return False
+
+        else:
+            # Movement/system commands: try cursor-only movement when viewport didn't scroll
+            is_movement_key = (
+                (key_event.key_type == KeyType.SPECIAL and key_event.value in ('left','right','home','end'))
+                or (key_event.key_type == KeyType.CTRL and key_event.value in ('a','e'))
+                or (key_event.key_type == KeyType.ALT and key_event.value in ('left','right','b','f'))
+            )
+            if is_movement_key and not pre_selection_active and not self.prompt_mode and not self.error_mode and not self.help_visible:
+                # Update visual cursor position based on current model & view without re-rendering
+                try:
+                    self.view._set_visual_cursor_position()
+                except Exception:
+                    return True
+                new_y = getattr(self.view, 'visual_cursor_y', pre_visual_y)
+                new_x = getattr(self.view, 'visual_cursor_x', pre_visual_x)
+                # Ensure viewport top hasn't changed and target within current lines
+                if (
+                    pre_start_idx == getattr(self.view, 'start_paragraph_index', pre_start_idx)
+                    and pre_first_offset == getattr(self.view, 'first_paragraph_line_offset', pre_first_offset)
+                    and 0 <= new_y < len(self.view.lines)
+                ):
+                    left_margin = (self.terminal.width - self.VIEW_WIDTH) // 2
+                    self.terminal.move_cursor(new_y, new_x, left_margin)
+                    return False
 
         return True
 
