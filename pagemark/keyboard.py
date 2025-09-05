@@ -106,6 +106,16 @@ class KeyboardHandler:
             # Fallback: treat unknown token as special
             return KeyEvent(key_type=KeyType.SPECIAL, value=base, raw=key_str, is_sequence=True)
 
+        # Single-byte ASCII control chars (Ctrl-<letter>)
+        if len(key_str) == 1:
+            o = ord(key_str)
+            if 1 <= o <= 26:  # Ctrl-A .. Ctrl-Z (exclude ESC=27)
+                ch = chr(ord('a') + o - 1)
+                # Map Ctrl-J/Ctrl-M to enter, consistent with terminals
+                if ch in ('j', 'm'):
+                    return KeyEvent(key_type=KeyType.SPECIAL, value='enter', raw=key_str)
+                return KeyEvent(key_type=KeyType.CTRL, value=ch, raw=key_str, is_ctrl=True)
+
         # Bare ESC
         if key_str == '\x1b':
             return KeyEvent(key_type=KeyType.SPECIAL, value='escape', raw='\x1b')

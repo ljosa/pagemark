@@ -371,18 +371,22 @@ class CommandRegistry:
         
         # Help command - F1 only
         self.register((KeyType.SPECIAL, 'f1'), HelpCommand())
-    
+        
+        # Paging (PageDown/PageUp)
+        self.register((KeyType.SPECIAL, 'page_down'), PageDownCommand())
+        self.register((KeyType.SPECIAL, 'page_up'), PageUpCommand())
+
     def register(self, key: Tuple[KeyType, str], command: EditorCommand):
         """Register a command for a key combination."""
         self._commands[key] = command
-    
+
     def get_command(self, key_type: KeyType, value: str) -> Optional[EditorCommand]:
         """Get the command for a key combination."""
         # For Alt-modified keys, check both with and without Alt flag
         if key_type == KeyType.ALT:
             return self._commands.get((KeyType.ALT, value))
         return self._commands.get((key_type, value))
-    
+
     def execute(self, editor: 'Editor', key_event: 'KeyEvent') -> bool:
         """Execute the command for the given key event.
         
@@ -403,3 +407,11 @@ class CommandRegistry:
             return InsertTextCommand().execute(editor, key_event)
         
         return False
+
+class PageDownCommand(MovementCommand):
+    def _move(self, editor, key_event):
+        editor.view.scroll_page_down()
+
+class PageUpCommand(MovementCommand):
+    def _move(self, editor, key_event):
+        editor.view.scroll_page_up()

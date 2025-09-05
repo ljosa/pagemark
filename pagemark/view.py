@@ -125,6 +125,7 @@ class TerminalTextView(TextView):
     visual_cursor_x: int = 0  # Store visual horizontal position
     desired_x: int = 0  # Desired X position for up/down navigation
     LINES_PER_PAGE: int = EditorConstants.LINES_PER_PAGE  # Standard lines per printed page
+    CONTEXT_LINES: int = 2  # Overlap context lines when paging
 
     def _create_page_break_line(self, page_num: int) -> str:
         """Create a centered page break line with page number."""
@@ -625,3 +626,130 @@ class TerminalTextView(TextView):
     def update_desired_x(self):
         """Update the desired X position based on current cursor position."""
         self.desired_x = self.visual_cursor_x
+
+    # --- Paging (Emacs-style C-v / M-v) ---
+    def _total_document_lines(self) -> int:
+        total = 0
+        for i in range(len(self.model.paragraphs)):
+            total += self._get_paragraph_line_count(i)
+        return total
+
+    def _page_breaks_between(self, start_doc_line: int, end_doc_line_exclusive: int) -> int:
+        """Count page break lines that would be inserted between start (inclusive)
+        and end (exclusive) document lines.
+
+        Page break lines are virtual lines inserted after certain document
+        lines; reuse the same condition used in render.
+        """
+        count = 0
+        for ln in range(max(0, start_doc_line), max(0, end_doc_line_exclusive)):
+            if self._should_add_page_break(ln):
+                count += 1
+        return count
+
+    def _doc_top_line(self) -> int:
+        return self._get_document_line_number(self.start_paragraph_index, self.first_paragraph_line_offset)
+
+    def _set_view_top_to_doc_line(self, doc_line: int) -> None:
+        para_idx, line_in_para = self._document_line_to_paragraph(doc_line)
+        self.start_paragraph_index = para_idx
+        self.first_paragraph_line_offset = line_in_para
+
+    def _cursor_doc_line(self) -> int:
+        # Compute the document line where the cursor is (counting content lines only)
+        cursor_para_idx = self.model.cursor_position.paragraph_index
+        doc_line = 0
+        for i in range(cursor_para_idx):
+            doc_line += self._get_paragraph_line_count(i)
+        # Which wrapped line contains the cursor
+        _, para_counts = render_paragraph(self.model.paragraphs[cursor_para_idx], self.num_columns)
+        line_idx = 0
+        char_idx = self.model.cursor_position.character_index
+        for i, count in enumerate(para_counts):
+            if char_idx < count:
+                line_idx = i
+                break
+        else:
+            line_idx = len(para_counts) - 1
+        return doc_line + line_idx
+
+    def _set_cursor_to_doc_line_start(self, doc_line: int) -> None:
+        para_idx, line_in_para = self._document_line_to_paragraph(doc_line)
+        para = self.model.paragraphs[para_idx]
+        _, counts = render_paragraph(para, self.num_columns)
+        if line_in_para == 0:
+            char_index = 0
+        else:
+            char_index = counts[line_in_para - 1]
+        self.model.cursor_position.paragraph_index = para_idx
+        self.model.cursor_position.character_index = char_index
+
+    def scroll_page_down(self) -> None:
+        # Scroll forward: one screenful minus context
+        target_visual = max(1, self.num_rows - self.CONTEXT_LINES)
+        top = self._doc_top_line()
+        total = self._total_document_lines()
+        # Adjust for page-break lines so we move by target visual lines
+        d = min(target_visual, max(0, total - 1 - top))
+        # Iterate to account for page breaks introduced in range
+        for _ in range(5):
+            breaks = self._page_breaks_between(top, top + d)
+            eff = d + breaks
+            if eff == target_visual:
+                break
+            if eff > target_visual and d > 0:
+                d -= min(eff - target_visual, d)
+            elif eff < target_visual:
+                room = max(0, total - 1 - (top + d))
+                inc = min(target_visual - eff, room)
+                if inc == 0:
+                    break
+                d += inc
+            else:
+                break
+        new_top = min(max(0, total - 1), top + d)
+
+        # Adjust view
+        self._set_view_top_to_doc_line(new_top)
+
+        # Cursor behavior: if cursor above new_top, move to top line
+        cursor_line = self._cursor_doc_line()
+        if cursor_line < new_top:
+            self._set_cursor_to_doc_line_start(new_top)
+        # Re-render
+        self.render()
+
+    def scroll_page_up(self) -> None:
+        # Scroll backward: one screenful minus context
+        target_visual = max(1, self.num_rows - self.CONTEXT_LINES)
+        top = self._doc_top_line()
+        # Determine backward doc-line movement accounting for page breaks
+        d = min(target_visual, top)
+        for _ in range(5):
+            breaks = self._page_breaks_between(top - d, top)
+            eff = d + breaks
+            if eff == target_visual:
+                break
+            if eff > target_visual and d > 0:
+                d -= min(eff - target_visual, d)
+            elif eff < target_visual:
+                inc = min(target_visual - eff, top - d)
+                if inc == 0:
+                    break
+                d += inc
+            else:
+                break
+        new_top = max(0, top - d)
+
+        # Adjust view
+        self._set_view_top_to_doc_line(new_top)
+
+        # Cursor behavior: if cursor below bottom, move to bottom line of view
+        cursor_line = self._cursor_doc_line()
+        approx_bottom = new_top + max(0, self.num_rows - 1)
+        total = self._total_document_lines()
+        if cursor_line > approx_bottom:
+            bottom_line = min(total - 1, approx_bottom)
+            self._set_cursor_to_doc_line_start(bottom_line)
+        # Re-render
+        self.render()
