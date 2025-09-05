@@ -142,7 +142,8 @@ class Editor:
                 if old_settings:
                     try:
                         termios.tcsetattr(sys.stdin, termios.TCSANOW, old_settings)
-                    except:
+                    except (termios.error, OSError):
+                        # Best-effort restore on exit; failing to restore shouldn't crash the app
                         pass
 
         except KeyboardInterrupt:
@@ -479,7 +480,8 @@ class Editor:
             if 'temp_filename' in locals() and os.path.exists(temp_filename):
                 try:
                     os.remove(temp_filename)
-                except:
+                except OSError:
+                    # If cleanup fails (e.g., file already removed), ignore
                     pass
             return False
         except OSError as e:
@@ -491,7 +493,8 @@ class Editor:
             if 'temp_filename' in locals() and os.path.exists(temp_filename):
                 try:
                     os.remove(temp_filename)
-                except:
+                except OSError:
+                    # Ignore cleanup errors; saving already failed and user is notified
                     pass
             return False
         except Exception as e:
@@ -500,7 +503,8 @@ class Editor:
             if 'temp_filename' in locals() and os.path.exists(temp_filename):
                 try:
                     os.remove(temp_filename)
-                except:
+                except OSError:
+                    # Ignore cleanup errors; saving already failed and user is notified
                     pass
             return False
 

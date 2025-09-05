@@ -97,7 +97,9 @@ class EditCommand(EditorCommand):
             from .undo import UndoEntry
             editor.undo.push(UndoEntry(before=before, after=after))
         except Exception:
-            # Undo is best-effort; avoid breaking edits due to undo issues
+            # Justification: Undo persistence should never break editing.
+            # We intentionally catch any exception to ensure edits proceed;
+            # failures here only affect the ability to undo, not document integrity.
             pass
         editor.view.update_desired_x()
         return True

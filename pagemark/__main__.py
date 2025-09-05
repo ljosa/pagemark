@@ -50,10 +50,12 @@ def run_keyboard_test() -> None:
             if hasattr(termios, 'VDISCARD') and termios.VDISCARD < len(cc):
                 cc[termios.VDISCARD] = b'\x00'[0]
             new_settings[6] = bytes(cc)
-        except Exception:
+        except (IndexError, TypeError, AttributeError):
+            # Be resilient to platform-specific termios layouts
             pass
         termios.tcsetattr(sys.stdin, termios.TCSANOW, new_settings)
-    except Exception:
+    except (termios.error, AttributeError, OSError):
+        # Keyboard test should keep running even if termios tweaks fail
         pass
 
     kb = KeyboardHandler(term)
@@ -87,7 +89,8 @@ def run_keyboard_test() -> None:
         if old_settings is not None:
             try:
                 termios.tcsetattr(sys.stdin, termios.TCSANOW, old_settings)
-            except Exception:
+            except (termios.error, OSError):
+                # Best-effort restore of terminal settings
                 pass
         term.cleanup()
 

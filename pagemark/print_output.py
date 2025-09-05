@@ -77,7 +77,8 @@ class PrintOutput:
             if 'ps_filename' in locals() and os.path.exists(ps_filename):
                 os.unlink(ps_filename)
             return False, "Print command timed out"
-        except Exception as e:
+        except (OSError, subprocess.SubprocessError) as e:
+            # Justification: ensure temp file cleanup and return a user-facing error
             if 'ps_filename' in locals() and os.path.exists(ps_filename):
                 os.unlink(ps_filename)
             return False, f"Print error: {str(e)}"
@@ -106,7 +107,8 @@ class PrintOutput:
             
             return True, ""
             
-        except Exception as e:
+        except OSError as e:
+            # File system errors are expected here; report succinctly
             return False, f"Save error: {str(e)}"
     
     
@@ -138,5 +140,5 @@ class PrintOutput:
             
             return True, ""
             
-        except Exception as e:
+        except OSError as e:
             return False, f"Path validation error: {str(e)}"

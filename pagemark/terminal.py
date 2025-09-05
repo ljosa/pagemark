@@ -31,6 +31,9 @@ class TerminalInterface:
                 self._curtsies_input.__enter__()
                 self._curtsies_active = True
             except Exception:
+                # Justification: curtsies may be absent or fail to initialize
+                # in some environments (CI, limited terminals). Fall back to
+                # a no-input mode gracefully without crashing.
                 self._curtsies_input = None
                 self._curtsies_active = False
         
@@ -47,6 +50,8 @@ class TerminalInterface:
                     # Exit raw mode context
                     self._curtsies_input.__exit__(None, None, None)  # type: ignore
             except Exception:
+                # Justification: teardown should never crash the app. Any
+                # failure to exit raw mode is non-fatal at this point.
                 pass
             finally:
                 self._curtsies_input = None

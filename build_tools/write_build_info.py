@@ -8,7 +8,8 @@ def _run_git(args: list[str], cwd: Path) -> str | None:
     try:
         out = subprocess.check_output(["git", *args], cwd=str(cwd))
         return out.decode().strip() or None
-    except Exception:
+    except (subprocess.CalledProcessError, FileNotFoundError, OSError):
+        # Build should not fail just because git is unavailable
         return None
 
 
@@ -30,4 +31,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

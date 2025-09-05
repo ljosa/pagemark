@@ -108,6 +108,8 @@ class PrintDialog:
                     if self.current_page >= len(self.pages):
                         self.current_page = max(0, len(self.pages) - 1)
             except Exception:
+                # Justification: Reformatting may raise on malformed model in rare tests;
+                # the dialog should still open and allow cancel.
                 pass
 
             while True:

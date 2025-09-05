@@ -20,7 +20,8 @@ def _run_git(args: list[str], cwd: Optional[str] = None) -> Optional[str]:
     try:
         out = subprocess.check_output(["git", *args], cwd=cwd or os.getcwd())
         return out.decode().strip() or None
-    except Exception:
+    except (subprocess.CalledProcessError, FileNotFoundError, OSError):
+        # Justification: version must not crash if git is unavailable or fails
         return None
 
 
@@ -29,7 +30,8 @@ def _git_root_for(path: Path) -> Optional[Path]:
         out = subprocess.check_output(["git", "rev-parse", "--show-toplevel"], cwd=str(path))
         root = Path(out.decode().strip())
         return root if root.exists() else None
-    except Exception:
+    except (subprocess.CalledProcessError, FileNotFoundError, OSError):
+        # No VCS context; proceed to other build info sources
         return None
 
 
@@ -47,7 +49,8 @@ def _from_git_repo() -> Optional[BuildInfo]:
             ["git", "status", "--porcelain"], cwd=str(root)
         ).decode()
         dirty = bool(status.strip())
-    except Exception:
+    except (subprocess.CalledProcessError, FileNotFoundError, OSError):
+        # Conservatively treat as clean if we cannot determine
         pass
 
     return BuildInfo(commit=commit, date=date, dirty=dirty)
@@ -63,6 +66,7 @@ def _from_embedded_file() -> Optional[BuildInfo]:
         if commit or date:
             return BuildInfo(commit=commit, date=date, dirty=False)
     except Exception:
+        # Missing embedded build info is expected in editable installs
         pass
     return None
 
@@ -82,6 +86,7 @@ def _from_direct_url() -> Optional[BuildInfo]:
                 if commit:
                     return BuildInfo(commit=commit, date=None, dirty=False)
     except Exception:
+        # Absence of PEP 610 metadata is normal outside direct-url installs
         pass
     return None
 
