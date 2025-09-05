@@ -105,6 +105,40 @@ def test_move_end_of_line_middle_visual_line():
     assert model.cursor_position.paragraph_index == 0
 
 
+def test_move_end_of_line_at_visual_boundary_stays_on_next_line():
+    """Ctrl-E at start of a visual line should act on that line, not the previous one.
+
+    Regression: when cursor is exactly at a wrap boundary (start of next visual line),
+    move_end_of_line should move to the end of that current line, not jump to the
+    end of the previous visual line.
+    """
+    view = TerminalTextView()
+    view.num_columns = 20  # Force wrapping
+    view.num_rows = 10
+
+    long_text = "This is a very long line that will definitely wrap around"
+    model = TextModel(view, paragraphs=[long_text])
+
+    from pagemark.view import render_paragraph
+    para_lines, para_counts = render_paragraph(long_text, 20)
+    assert len(para_counts) >= 2  # ensure wrapping happened
+
+    # Place cursor exactly at the start of the second visual line
+    boundary = para_counts[0]
+    model.cursor_position = CursorPosition(0, boundary)
+
+    # Invoke Ctrl-E behavior
+    model.move_end_of_line()
+
+    # Expect to be at the end of the second visual line (not the first)
+    if len(para_counts) > 1:
+        expected_end = para_counts[1] - 1 if len(para_counts) > 1 else len(long_text)
+    else:
+        expected_end = len(long_text)
+    assert model.cursor_position.character_index == expected_end
+    assert model.cursor_position.paragraph_index == 0
+
+
 def test_move_end_of_line_last_visual_line():
     """Test Ctrl-E on last visual line goes to end of paragraph."""
     view = TerminalTextView()

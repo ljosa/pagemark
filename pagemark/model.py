@@ -546,11 +546,14 @@ class TextModel:
         para_lines, para_counts = render_paragraph(para, self.view.num_columns)
         
         # Find which visual line we're on within the paragraph
-        # Use simple rule: we're on the line whose cumulative count we haven't exceeded
+        # Rule: if cursor is exactly at a line boundary (equal to a cumulative
+        # count), it is considered at the beginning of the NEXT visual line.
+        # Therefore select the first line whose cumulative count is strictly
+        # greater than the current char index; otherwise, the last line.
         line_index = len(para_counts) - 1  # Default to last line
         if para_counts:
             for i, count in enumerate(para_counts):
-                if char_idx <= count:
+                if char_idx < count:  # strictly less selects this line
                     line_index = i
                     break
                 
@@ -706,26 +709,35 @@ class TextModel:
     
     def kill_line(self):
         """Delete from cursor to end of visual line (Emacs-style Ctrl-K)."""
-        line_index, _, para_counts = self._get_visual_line_info()
-        
+        _, _, para_counts = self._get_visual_line_info()
+
         para_idx = self.cursor_position.paragraph_index
         char_idx = self.cursor_position.character_index
         para = self.paragraphs[para_idx]
-        
-        # Find the end position of this visual line
+
+        # End-of-paragraph behavior: join with next paragraph if exists
+        if char_idx == len(para):
+            if para_idx + 1 < len(self.paragraphs):
+                self._join_with_next_paragraph()
+            # else: at end of document, nothing to do
+            self.view.render()
+            return
+
+        # If exactly at a visual line boundary (end of previous line), do nothing
+        if para_counts and char_idx in para_counts:
+            self.view.render()
+            return
+
+        # Otherwise delete to the end of the current visual line (first count > char_idx)
+        visual_line_end = None
         if para_counts:
-            visual_line_end = para_counts[line_index]
-        else:
-            visual_line_end = 0
-        
-        # Kill from current position to end of visual line
-        if char_idx < visual_line_end:
-            # Delete from cursor to end of visual line
+            for count in para_counts:
+                if char_idx < count:
+                    visual_line_end = count
+                    break
+        if visual_line_end is not None and char_idx < visual_line_end:
             self.paragraphs[para_idx] = para[:char_idx] + para[visual_line_end:]
-        elif char_idx == len(para) and para_idx + 1 < len(self.paragraphs):
-            # At end of paragraph - join with next paragraph
-            self._join_with_next_paragraph()
-        # else: cursor at end of visual line but not end of paragraph, or at end of document - do nothing
+        # else: no change
         
         self.view.render()
 
