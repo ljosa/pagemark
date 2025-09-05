@@ -135,22 +135,49 @@ class TerminalInterface:
             # Normal cursor positioning in text
             print(self.term.move(cursor_y, cursor_x + left_margin) + self.term.normal_cursor, end='', flush=True)
 
-    def _compose_display_line(self, line: str, view_width: int, selection: Optional[tuple[int, int]] | None) -> str:
-        """Compose a display line with optional selection highlighting, padded to width.
+    def _compose_display_line(self, line: str, view_width: int, selection: Optional[tuple[int, int]] | None,
+                               styles: Optional[list[int]] = None) -> str:
+        """Compose a display line with bold/underline and optional selection, padded to width.
 
-        Returns the exact string to print at the line's position (including attributes).
+        Styles is a per-column bitmask list with 1=bold, 2=underline.
         """
-        display_line = line[:view_width].ljust(view_width)
-        if selection and 0 <= selection[0] < selection[1] <= len(display_line):
-            s, e = selection
-            return (
-                display_line[:s]
-                + self.term.reverse
-                + display_line[s:e]
-                + self.term.normal
-                + display_line[e:]
-            )
-        return display_line
+        text = line[:view_width].ljust(view_width)
+        styles = (styles or [])[:view_width] + [0]*max(0, view_width - len(styles or []))
+
+        out = []
+        active_bold = False
+        active_under = False
+        active_rev = False
+
+        def set_attrs(bold: bool, under: bool, rev: bool):
+            nonlocal active_bold, active_under, active_rev
+            if not (bold or under or rev):
+                out.append(self.term.normal)
+                active_bold = active_under = active_rev = False
+                return
+            # Reset then enable desired to avoid sticky state issues
+            out.append(self.term.normal)
+            if bold:
+                out.append(self.term.bold)
+            if under:
+                out.append(self.term.underline)
+            if rev:
+                out.append(self.term.reverse)
+            active_bold, active_under, active_rev = bold, under, rev
+
+        for i, ch in enumerate(text):
+            sel = False
+            if selection and selection[0] <= i < selection[1]:
+                sel = True
+            bold = bool(styles[i] & 1)
+            under = bool(styles[i] & 2)
+            if (bold != active_bold) or (under != active_under) or (sel != active_rev):
+                set_attrs(bold, under, sel)
+            out.append(ch)
+        # Reset at end
+        if active_bold or active_under or active_rev:
+            out.append(self.term.normal)
+        return ''.join(out)
 
     def update_frame(
         self,
@@ -161,6 +188,7 @@ class TerminalInterface:
         view_width: int,
         status_override: Optional[str] = None,
         selection_ranges: Optional[list] = None,
+        styles_by_line: Optional[list[list[int]]] = None,
     ) -> None:
         """Diff against last frame and write only changes.
 
@@ -184,7 +212,8 @@ class TerminalInterface:
         # Draw each line if changed
         for y, line in enumerate(lines):
             sel = selection_ranges[y] if selection_ranges and y < len(selection_ranges) else None
-            new_disp = self._compose_display_line(line, view_width, sel)
+            style_line = styles_by_line[y] if styles_by_line and y < len(styles_by_line) else None
+            new_disp = self._compose_display_line(line, view_width, sel, styles=style_line)
             old_disp = "" if self._last_lines is None else (self._last_lines[y] if y < len(self._last_lines) else "")
             if new_disp != old_disp:
                 print(self.term.move(y, left_margin) + new_disp, end='')

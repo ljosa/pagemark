@@ -14,6 +14,8 @@ class PostScriptGenerator:
 %%BoundingBox: 0 0 612 792
 %%DocumentNeededResources: font Courier
 %%DocumentNeededResources: font Courier-ISOLatin1
+%%DocumentNeededResources: font Courier-Bold
+%%DocumentNeededResources: font Courier-Bold-ISOLatin1
 %%EndComments
 
 %%BeginProlog
@@ -25,6 +27,14 @@ class PostScriptGenerator:
 }} def
 % Set up ISOLatin1 encoding for Courier font
 /Courier-ISOLatin1 /Courier findfont
+dup length dict begin
+  {{1 index /FID ne {{def}} {{pop pop}} ifelse}} forall
+  /Encoding ISOLatin1Encoding def
+  currentdict
+end
+definefont pop
+% Bold variant with ISOLatin1
+/Courier-Bold-ISOLatin1 /Courier-Bold findfont
 dup length dict begin
   {{1 index /FID ne {{def}} {{pop pop}} ifelse}} forall
   /Encoding ISOLatin1Encoding def
@@ -65,11 +75,12 @@ showpage
         """Initialize PostScript generator."""
         pass
     
-    def generate_postscript(self, pages: List[List[str]]) -> str:
+    def generate_postscript(self, pages: List[List[str]], page_styles: list[list[object]] | None = None) -> str:
         """Generate PostScript from formatted pages.
-        
+
         Args:
             pages: List of pages, each containing 66 lines of 85 chars.
+            page_styles: Optional per-line style masks for the 65-col text area.
             
         Returns:
             Complete PostScript document as a string.
@@ -83,14 +94,70 @@ showpage
         for page_num, page in enumerate(pages, 1):
             # Add page setup
             ps_content.append(self.PAGE_SETUP.format(page_num=page_num))
+            # Tag page if styled runs are present
+            has_runs = False
+            if page_styles and page_num-1 < len(page_styles):
+                try:
+                    for line_runs in page_styles[page_num-1]:
+                        if line_runs:
+                            has_runs = True
+                            break
+                except Exception:
+                    has_runs = False
+            if has_runs:
+                ps_content.append("% StyledRuns: yes\n")
             
             # Add page content
             # Start from top of page (10 inches from bottom)
             # Each line moves down 12 points (1/6 inch for 6 lpi)
-            for line in page:
-                # Escape special PostScript characters
-                escaped_line = self._escape_postscript(line)
-                ps_content.append(f"({escaped_line}) showline\n")
+            for li, line in enumerate(page):
+                runs = None
+                # page_styles parameter now represents runs for backward compatibility of variable name
+                if page_styles and page_num-1 < len(page_styles) and li < len(page_styles[page_num-1]):
+                    runs = page_styles[page_num-1][li]
+                if not runs:
+                    # Escape special PostScript characters and print simple line
+                    escaped_line = self._escape_postscript(line)
+                    ps_content.append(f"({escaped_line}) showline\n")
+                else:
+                    # Styled drawing: iterate runs (start_x absolute in 85-col line)
+                    # Track current x position to know how many spaces to add between segments
+                    current_x = 0
+                    for (start_x, seg_text, flags) in runs:
+                        b = bool(flags & 1)
+                        u = bool(flags & 2)
+                        
+                        # Add spaces to reach the start position
+                        if start_x > current_x:
+                            spaces_needed = start_x - current_x
+                            ps_content.append(f"({' ' * spaces_needed}) show\n")
+                            current_x = start_x
+                        
+                        # Set font for this segment
+                        if b:
+                            ps_content.append("/Courier-Bold-ISOLatin1 findfont 12 scalefont setfont\n")
+                        else:
+                            ps_content.append("/Courier-ISOLatin1 findfont 12 scalefont setfont\n")
+                        
+                        # Show the text segment
+                        if u:
+                            # Save position before showing text for underline
+                            ps_content.append("currentpoint /uy exch def /ux exch def\n")
+                        ps_content.append(f"({self._escape_postscript(seg_text)}) show\n")
+                        
+                        # Draw underline if needed
+                        if u:
+                            ps_content.append("currentpoint /uy2 exch def /ux2 exch def\n")
+                            ps_content.append("gsave\n")
+                            ps_content.append("newpath ux uy 2 sub moveto ux2 uy 2 sub lineto stroke\n")
+                            ps_content.append("grestore\n")
+                            ps_content.append("ux2 uy2 moveto\n")  # Restore position after stroke
+                        
+                        # Update current position
+                        current_x = start_x + len(seg_text)
+                    
+                    # Move to next line (equivalent to showline's move)
+                    ps_content.append("0 currentpoint exch pop 12 sub moveto\n")
             
             # Add page trailer
             ps_content.append(self.PAGE_TRAILER)

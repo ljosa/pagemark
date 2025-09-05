@@ -37,7 +37,8 @@ class PrintOutput:
         
         try:
             # Generate PostScript using our Python generator
-            postscript_content = self.ps_generator.generate_postscript(pages)
+            runs = getattr(self, 'page_runs', None)
+            postscript_content = self.ps_generator.generate_postscript(pages, runs)
             
             # Create temporary PostScript file
             with tempfile.NamedTemporaryFile(mode='w', suffix='.ps', 
@@ -99,7 +100,8 @@ class PrintOutput:
         
         try:
             # Generate PostScript using our Python generator
-            postscript_content = self.ps_generator.generate_postscript(pages)
+            runs = getattr(self, 'page_runs', None)
+            postscript_content = self.ps_generator.generate_postscript(pages, runs)
             
             # Save as PostScript file
             with open(filename, 'w') as f:

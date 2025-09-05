@@ -129,3 +129,29 @@ def test_postscript_page_structure():
     assert ps_content.count("showpage") == 3
     assert ps_content.count("gsave") == 3
     assert ps_content.count("grestore") == 3
+
+
+def test_postscript_styled_uses_bold_and_underline():
+    """Styled PS generation switches fonts and draws underlines for styled runs."""
+    generator = PostScriptGenerator()
+
+    # One page with a single text area line containing mixed styles
+    # Build an 85-char line with 10-char left margin + 65-char text + 10 right margin
+    left_margin = " " * 10
+    right_margin = " " * 10
+    text = "Hello World".ljust(65)
+    pages = [[left_margin + text + right_margin] + [""] * 65]
+    # Build runs: bold on "Hello" (start_x=10), underline on "World" (start_x=16)
+    STYLE_BOLD = 1
+    STYLE_UNDER = 2
+    runs_line = [
+        (10, "Hello", STYLE_BOLD),
+        (16, "World", STYLE_UNDER),
+    ]
+    page_runs = [[runs_line] + [None] * 65]
+    ps_content = generator.generate_postscript(pages, page_runs)
+
+    # Expect bold font switches present
+    assert "/Courier-Bold-ISOLatin1" in ps_content
+    # Expect underline drawing annotations present
+    assert "underline segment" in ps_content or "lineto stroke" in ps_content

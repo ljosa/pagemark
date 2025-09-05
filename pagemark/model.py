@@ -51,6 +51,112 @@ class TextModel:
         self.selection_start = None  # CursorPosition when selection started
         self.selection_end = None    # Current end of selection
         self.clipboard = ""          # Internal clipboard for cut/copy/paste
+        # Styling: per-paragraph parallel mask arrays with bit flags
+        # 1 = bold, 2 = underline
+        self.STYLE_BOLD = 1
+        self.STYLE_UNDER = 2
+        self.styles: list[list[int]] = [ [0]*len(p) for p in self.paragraphs ]
+        # Caret style used when inserting text; updated on cursor moves
+        self.caret_style: int = 0
+
+    def _sync_styles_length(self):
+        """Ensure styles list mirrors paragraphs lengths (internal safety)."""
+        if len(self.styles) != len(self.paragraphs):
+            self.styles = [ [0]*len(p) for p in self.paragraphs ]
+        else:
+            for i,p in enumerate(self.paragraphs):
+                if len(self.styles[i]) != len(p):
+                    self.styles[i] = (self.styles[i][:len(p)] + [0]*max(0, len(p)-len(self.styles[i])))
+
+    def _update_caret_style_from_position(self):
+        """Update caret_style based on style at cursor position (inherit from left)."""
+        pi = self.cursor_position.paragraph_index
+        ci = self.cursor_position.character_index
+        if 0 <= pi < len(self.styles):
+            line_styles = self.styles[pi]
+            if ci > 0 and ci-1 < len(line_styles):
+                self.caret_style = line_styles[ci-1]
+            elif ci < len(line_styles):
+                self.caret_style = line_styles[ci]
+            else:
+                self.caret_style = 0
+        else:
+            self.caret_style = 0
+
+    # --- Serialization with overstrike for bold/underline ---
+    def to_overstrike_text(self) -> str:
+        """Serialize document to text using overstrike for bold/underline.
+
+        For each character c with style flags:
+        - bold: c + '\b' + c
+        - underline: '_' + '\b' + c
+        - both: '_' + '\b' + c + '\b' + c
+        """
+        lines = []
+        for pi, para in enumerate(self.paragraphs):
+            st = self.styles[pi] if pi < len(self.styles) else [0]*len(para)
+            out = []
+            for i, ch in enumerate(para):
+                flags = st[i] if i < len(st) else 0
+                seg = ''
+                if flags & self.STYLE_UNDER:
+                    seg += '_' + '\b' + ch
+                else:
+                    seg += ch
+                if flags & self.STYLE_BOLD:
+                    seg += '\b' + ch
+                out.append(seg)
+            lines.append(''.join(out))
+        return '\n'.join(lines)
+
+    @staticmethod
+    def _parse_overstrike_paragraph(text: str) -> tuple[str, list[int]]:
+        """Parse a single paragraph with overstrike into plain text + styles mask."""
+        i = 0
+        out_chars: list[str] = []
+        out_styles: list[int] = []
+        STYLE_BOLD = 1
+        STYLE_UNDER = 2
+        while i < len(text):
+            ch = text[i]
+            # Underline pattern: '_' '\b' X
+            if ch == '_' and i+2 < len(text) and text[i+1] == '\b':
+                real = text[i+2]
+                out_chars.append(real)
+                # Check for a following '\b' + same char (bold on top)
+                style = STYLE_UNDER
+                if i+4 < len(text) and text[i+3] == '\b' and text[i+4] == real:
+                    style |= STYLE_BOLD
+                    i += 5
+                else:
+                    i += 3
+                out_styles.append(style)
+                continue
+            # Bold pattern: X '\b' X
+            if i+2 < len(text) and text[i+1] == '\b' and text[i+2] == ch:
+                out_chars.append(ch)
+                out_styles.append(STYLE_BOLD)
+                i += 3
+                continue
+            # Plain char
+            out_chars.append(ch)
+            out_styles.append(0)
+            i += 1
+        return (''.join(out_chars), out_styles)
+
+    @classmethod
+    def from_overstrike_text(cls, view: TextView, text: str) -> "TextModel":
+        paras_raw = text.split('\n') if text else [""]
+        paras: list[str] = []
+        styles: list[list[int]] = []
+        for p in paras_raw:
+            plain, st = cls._parse_overstrike_paragraph(p)
+            paras.append(plain)
+            styles.append(st)
+        m = cls(view, paragraphs=paras)
+        m.styles = styles
+        m._update_caret_style_from_position()
+        return m
 
     def insert_text(self, text: str, position: Optional[CursorPosition] = None):
         if position is None:
@@ -60,22 +166,73 @@ class TextModel:
         in_view = self.view.start_paragraph_index <= position.paragraph_index < self.view.end_paragraph_index
 
         paragraphs = text.split("\n")
-        current_paragraph = self.paragraphs[self.cursor_position.paragraph_index]
-        before_cursor = current_paragraph[:self.cursor_position.character_index]
-        after_cursor = current_paragraph[self.cursor_position.character_index:]
+        para_idx = self.cursor_position.paragraph_index
+        char_idx = self.cursor_position.character_index
+        current_paragraph = self.paragraphs[para_idx]
+        before_cursor = current_paragraph[:char_idx]
+        after_cursor = current_paragraph[char_idx:]
+
+        # Prepare styles for insertion
+        self._sync_styles_length()
+        curr_styles = self.styles[para_idx]
+        before_styles = curr_styles[:char_idx]
+        after_styles = curr_styles[char_idx:]
+        insert_styles_segments = [ [self.caret_style]*len(seg) for seg in paragraphs ]
+
+        # Merge text
         paragraphs[0] = before_cursor + paragraphs[0]
         paragraphs[-1] += after_cursor
-        self.paragraphs = (
-            self.paragraphs[: self.cursor_position.paragraph_index]
+        new_paras = (
+            self.paragraphs[: para_idx]
             + paragraphs
-            + self.paragraphs[self.cursor_position.paragraph_index + 1 :]
+            + self.paragraphs[para_idx + 1 :]
         )
-        self.cursor_position.paragraph_index += len(paragraphs) - 1
+        # Merge styles
+        insert_styles_segments[0] = before_styles + insert_styles_segments[0]
+        insert_styles_segments[-1] = insert_styles_segments[-1] + after_styles
+        new_styles = (
+            self.styles[: para_idx]
+            + insert_styles_segments
+            + self.styles[para_idx + 1 :]
+        )
+        self.paragraphs = new_paras
+        self.styles = new_styles
+        self.cursor_position.paragraph_index = para_idx + len(paragraphs) - 1
         self.cursor_position.character_index = len(paragraphs[-1]) - len(after_cursor)
+        # After inserting newline, styles persist across newlines by design (caret_style unchanged)
 
         if before_view:
             self.view.start_paragraph_index += len(paragraphs) - 1
             self.view.end_paragraph_index += len(paragraphs) - 1
+        elif in_view:
+            self.view.render()
+
+    def _insert_text_with_styles(self, parts: list[str], parts_styles: list[list[int]]):
+        before_view = self.cursor_position.paragraph_index < self.view.start_paragraph_index
+        in_view = self.view.start_paragraph_index <= self.cursor_position.paragraph_index < self.view.end_paragraph_index
+        para_idx = self.cursor_position.paragraph_index
+        char_idx = self.cursor_position.character_index
+        current_paragraph = self.paragraphs[para_idx]
+        before_cursor = current_paragraph[:char_idx]
+        after_cursor = current_paragraph[char_idx:]
+        self._sync_styles_length()
+        curr_styles = self.styles[para_idx]
+        before_styles = curr_styles[:char_idx]
+        after_styles = curr_styles[char_idx:]
+        # Merge
+        parts = parts[:]
+        parts_styles = parts_styles[:]
+        parts[0] = before_cursor + parts[0]
+        parts_styles[0] = before_styles + parts_styles[0]
+        parts[-1] = parts[-1] + after_cursor
+        parts_styles[-1] = parts_styles[-1] + after_styles
+        self.paragraphs = self.paragraphs[:para_idx] + parts + self.paragraphs[para_idx+1:]
+        self.styles = self.styles[:para_idx] + parts_styles + self.styles[para_idx+1:]
+        self.cursor_position.paragraph_index = para_idx + len(parts) - 1
+        self.cursor_position.character_index = len(parts[-1]) - len(after_cursor)
+        if before_view:
+            self.view.start_paragraph_index += len(parts) - 1
+            self.view.end_paragraph_index += len(parts) - 1
         elif in_view:
             self.view.render()
 
@@ -85,6 +242,7 @@ class TextModel:
         elif self.cursor_position.paragraph_index + 1 < len(self.paragraphs):
             self.cursor_position.paragraph_index += 1
             self.cursor_position.character_index = 0
+        self._update_caret_style_from_position()
         self.view.render()
 
     def left_char(self):
@@ -93,6 +251,7 @@ class TextModel:
         elif self.cursor_position.paragraph_index > 0:
             self.cursor_position.paragraph_index -= 1
             self.cursor_position.character_index = len(self.paragraphs[self.cursor_position.paragraph_index])
+        self._update_caret_style_from_position()
         self.view.render()
     
     def count_words(self) -> int:
@@ -162,7 +321,17 @@ class TextModel:
             paragraph[word2.end():]
         )
         
+        # Update paragraph and styles (styles remain with their characters)
+        old_styles = self.styles[para_idx]
+        new_styles = (
+            old_styles[:word1.start()] +
+            old_styles[word2.start():word2.end()] +
+            old_styles[word1.end():word2.start()] +
+            old_styles[word1.start():word1.end()] +
+            old_styles[word2.end():]
+        )
         self.paragraphs[para_idx] = new_paragraph
+        self.styles[para_idx] = new_styles
         
         # Move cursor to end of transposed region
         self.cursor_position.character_index = word2.start() + len(word1.group())
@@ -186,22 +355,35 @@ class TextModel:
         if char_idx == 0:
             # At beginning, transpose first two chars
             self.paragraphs[para_idx] = paragraph[1] + paragraph[0] + paragraph[2:]
+            st = self.styles[para_idx]
+            self.styles[para_idx] = st[1:2] + st[0:1] + st[2:]
             self.cursor_position.character_index = 2
         elif char_idx >= para_len:
             # At end, transpose last two chars
             self.paragraphs[para_idx] = paragraph[:-2] + paragraph[-1] + paragraph[-2]
+            st = self.styles[para_idx]
+            self.styles[para_idx] = st[:-2] + st[-1:] + st[-2:-1]
             # Cursor stays at end
         else:
             # In middle, transpose char before and after cursor
             if char_idx == 1:
                 # Special case when cursor is at position 1
                 self.paragraphs[para_idx] = paragraph[1] + paragraph[0] + paragraph[2:]
+                st = self.styles[para_idx]
+                self.styles[para_idx] = st[1:2] + st[0:1] + st[2:]
             else:
                 self.paragraphs[para_idx] = (
                     paragraph[:char_idx-1] + 
                     paragraph[char_idx] + 
                     paragraph[char_idx-1] + 
                     paragraph[char_idx+1:]
+                )
+                st = self.styles[para_idx]
+                self.styles[para_idx] = (
+                    st[:char_idx-1] +
+                    st[char_idx:char_idx+1] +
+                    st[char_idx-1:char_idx] +
+                    st[char_idx+1:]
                 )
             self.cursor_position.character_index = min(char_idx + 1, para_len)
         
@@ -269,6 +451,11 @@ class TextModel:
         # Combine paragraphs
         self.paragraphs[prev_idx] = prev_para + curr_para
         del self.paragraphs[self.cursor_position.paragraph_index]
+        # Combine styles
+        prev_styles = self.styles[prev_idx]
+        curr_styles = self.styles[self.cursor_position.paragraph_index]
+        self.styles[prev_idx] = prev_styles + curr_styles
+        del self.styles[self.cursor_position.paragraph_index]
         
         # Move cursor to join point
         self.cursor_position.paragraph_index = prev_idx
@@ -292,6 +479,9 @@ class TextModel:
         # Combine paragraphs
         self.paragraphs[para_idx] = curr_para + next_para
         del self.paragraphs[para_idx + 1]
+        # Combine styles
+        self.styles[para_idx] = self.styles[para_idx] + self.styles[para_idx + 1]
+        del self.styles[para_idx + 1]
         
         return True
     
@@ -330,6 +520,7 @@ class TextModel:
                 # at the first letter of the last word)
                 self.cursor_position.character_index = para_len
         
+        self._update_caret_style_from_position()
         self.view.render()
     
     def left_word(self):
@@ -355,6 +546,7 @@ class TextModel:
             self.cursor_position.paragraph_index -= 1
             self.cursor_position.character_index = len(self.paragraphs[self.cursor_position.paragraph_index])
         
+        self._update_caret_style_from_position()
         self.view.render()
     
     def downcase_word(self):
@@ -569,6 +761,7 @@ class TextModel:
         else:
             self.cursor_position.character_index = para_counts[line_index - 1]
         
+        self._update_caret_style_from_position()
         self.view.render()
     
     def move_end_of_line(self):
@@ -592,6 +785,7 @@ class TextModel:
             # Empty paragraph
             self.cursor_position.character_index = 0
         
+        self._update_caret_style_from_position()
         self.view.render()
     
     def start_selection(self):
@@ -661,24 +855,35 @@ class TextModel:
              start.character_index > end.character_index)):
             start, end = end, start
         
+        # Ensure styles mirror structure
+        self._sync_styles_length()
+
         # Single paragraph deletion
         if start.paragraph_index == end.paragraph_index:
             para = self.paragraphs[start.paragraph_index]
             self.paragraphs[start.paragraph_index] = (
                 para[:start.character_index] + para[end.character_index:]
             )
+            st = self.styles[start.paragraph_index]
+            self.styles[start.paragraph_index] = (
+                st[:start.character_index] + st[end.character_index:]
+            )
             self.cursor_position = CursorPosition(start.paragraph_index, start.character_index)
         else:
             # Multi-paragraph deletion
             first_para = self.paragraphs[start.paragraph_index][:start.character_index]
             last_para = self.paragraphs[end.paragraph_index][end.character_index:]
+            first_styles = self.styles[start.paragraph_index][:start.character_index]
+            last_styles = self.styles[end.paragraph_index][end.character_index:]
             
             # Combine first and last parts
             self.paragraphs[start.paragraph_index] = first_para + last_para
+            self.styles[start.paragraph_index] = first_styles + last_styles
             
             # Delete intermediate paragraphs
             for _ in range(end.paragraph_index - start.paragraph_index):
                 del self.paragraphs[start.paragraph_index + 1]
+                del self.styles[start.paragraph_index + 1]
             
             self.cursor_position = CursorPosition(start.paragraph_index, start.character_index)
         
@@ -705,7 +910,19 @@ class TextModel:
         if self.selection_start is not None:
             self.delete_selection()
         if self.clipboard:
-            self.insert_text(self.clipboard)
+            # If styled clipboard present, insert with styles
+            flat = getattr(self, 'clipboard_styles', None)
+            if flat is not None:
+                text = self.clipboard
+                parts = text.split('\n')
+                parts_styles: list[list[int]] = []
+                idx = 0
+                for part in parts:
+                    parts_styles.append(flat[idx: idx+len(part)])
+                    idx += len(part)
+                self._insert_text_with_styles(parts, parts_styles)
+            else:
+                self.insert_text(self.clipboard)
     
     def kill_line(self):
         """Delete from cursor to end of visual line (Emacs-style Ctrl-K)."""

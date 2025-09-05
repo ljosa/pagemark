@@ -74,38 +74,46 @@ def test_print_to_printer_flow():
     # Mock the print components
     with patch('pagemark.editor.PrintDialog') as mock_dialog_class:
         with patch('pagemark.editor.PrintOutput') as mock_output_class:
-            mock_dialog = Mock()
-            mock_dialog.show.return_value = PrintOptions(
-                action=PrintAction.PRINT,
-                printer_name="TestPrinter",
-                double_sided=True
-            )
-            mock_dialog.pages = [["Page 1"], ["Page 2"]]
-            mock_dialog_class.return_value = mock_dialog
-            
-            mock_output = Mock()
-            mock_output.print_to_printer.return_value = (True, "")
-            mock_output_class.return_value = mock_output
-            
-            # Simulate Ctrl-P
-            key_event = KeyEvent(
-                key_type=KeyType.CTRL,
-                value='p',
-                raw='\x10',
-                is_ctrl=True
-            )
-            
-            editor._handle_key_event(key_event)
-            
-            # Verify print was called
-            mock_output.print_to_printer.assert_called_once_with(
-                [["Page 1"], ["Page 2"]],
-                "TestPrinter",
-                True
-            )
-            
-            # Verify status message
-            assert "Successfully printed" in editor.status_message
+            with patch('pagemark.editor.PrintFormatter') as mock_formatter_class:
+                mock_dialog = Mock()
+                mock_dialog.show.return_value = PrintOptions(
+                    action=PrintAction.PRINT,
+                    printer_name="TestPrinter",
+                    double_sided=True
+                )
+                mock_dialog.pages = [["Page 1"], ["Page 2"]]
+                mock_dialog.double_spacing = False
+                mock_dialog_class.return_value = mock_dialog
+                
+                # Mock PrintFormatter to return expected pages
+                mock_formatter = Mock()
+                mock_formatter.pages = [["Page 1"], ["Page 2"]]
+                mock_formatter.get_page_runs.return_value = []
+                mock_formatter_class.return_value = mock_formatter
+                
+                mock_output = Mock()
+                mock_output.print_to_printer.return_value = (True, "")
+                mock_output_class.return_value = mock_output
+                
+                # Simulate Ctrl-P
+                key_event = KeyEvent(
+                    key_type=KeyType.CTRL,
+                    value='p',
+                    raw='\x10',
+                    is_ctrl=True
+                )
+                
+                editor._handle_key_event(key_event)
+                
+                # Verify print was called
+                mock_output.print_to_printer.assert_called_once_with(
+                    [["Page 1"], ["Page 2"]],
+                    "TestPrinter",
+                    True
+                )
+                
+                # Verify status message
+                assert "Successfully printed" in editor.status_message
 
 
 def test_save_to_ps_flow():
@@ -146,29 +154,36 @@ def test_ps_filename_prompt_save():
     editor._pending_print_pages = [["Page 1"]]
     
     with patch('pagemark.editor.PrintOutput') as mock_output_class:
-        mock_output = Mock()
-        mock_output.validate_output_path.return_value = (True, "")
-        mock_output.save_to_file.return_value = (True, "")
-        mock_output_class.return_value = mock_output
-        
-        # Simulate Enter key in prompt
-        key_event = KeyEvent(
-            key_type=KeyType.SPECIAL,
-            value='enter',
-            raw='\r',
-            is_sequence=True,
-            code=343
-        )
-        
-        editor._handle_ps_filename_prompt(key_event)
-        
-        # Verify save was called
-        mock_output.save_to_file.assert_called_once_with(
-            [["Page 1"]],
-            "test.ps"
-        )
-        
-        # Verify prompt cleared
+        with patch('pagemark.editor.PrintFormatter') as mock_formatter_class:
+            mock_output = Mock()
+            mock_output.validate_output_path.return_value = (True, "")
+            mock_output.save_to_file.return_value = (True, "")
+            mock_output_class.return_value = mock_output
+            
+            # Mock PrintFormatter to return expected pages
+            mock_formatter = Mock()
+            mock_formatter.pages = [["Page 1"]]
+            mock_formatter.get_page_runs.return_value = []
+            mock_formatter_class.return_value = mock_formatter
+            
+            # Simulate Enter key in prompt
+            key_event = KeyEvent(
+                key_type=KeyType.SPECIAL,
+                value='enter',
+                raw='\r',
+                is_sequence=True,
+                code=343
+            )
+            
+            editor._handle_ps_filename_prompt(key_event)
+            
+            # Verify save was called
+            mock_output.save_to_file.assert_called_once_with(
+                [["Page 1"]],
+                "test.ps"
+            )
+            
+            # Verify prompt cleared
         assert editor.prompt_mode is None
         assert editor.prompt_input == ""
         assert editor._pending_print_pages is None

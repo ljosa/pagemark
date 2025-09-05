@@ -12,6 +12,7 @@ from .model import TextModel
 from .view import TerminalTextView
 from .print_dialog import PrintDialog, PrintAction
 from .print_output import PrintOutput
+from .print_formatter import PrintFormatter
 from .keyboard import KeyboardHandler, KeyEvent, KeyType
 from .constants import EditorConstants
 from .commands import CommandRegistry
@@ -190,6 +191,7 @@ class Editor:
             self.VIEW_WIDTH,
             status_override,
             selection_ranges,
+            getattr(self.view, 'line_styles', None),
         )
 
     def _snapshot_state(self) -> ModelSnapshot:
@@ -359,15 +361,19 @@ class Editor:
     def _handle_backspace(self):
         """Handle backspace key - delete character before cursor."""
         if self.model.cursor_position.character_index > 0:
-            # Delete within paragraph
+            # Delete within paragraph including style mask
             para_idx = self.model.cursor_position.paragraph_index
             char_idx = self.model.cursor_position.character_index
             para = self.model.paragraphs[para_idx]
             self.model.paragraphs[para_idx] = para[:char_idx-1] + para[char_idx:]
+            # Remove style at deleted position
+            if hasattr(self.model, 'styles'):
+                st = self.model.styles[para_idx]
+                self.model.styles[para_idx] = st[:char_idx-1] + st[char_idx:]
             self.model.cursor_position.character_index -= 1
             self.view.render()
         elif self.model.cursor_position.paragraph_index > 0:
-            # Join with previous paragraph
+            # Join with previous paragraph (styles handled in model join)
             self.model._join_with_previous_paragraph()
             self.view.render()
 
@@ -381,8 +387,8 @@ class Editor:
         try:
             with open(filename, 'r', encoding='utf-8') as f:
                 content = f.read()
-                paragraphs = content.split('\n') if content else [""]
-                self.model = TextModel(self.view, paragraphs=paragraphs)
+                # Parse as overstrike to support styled documents; plain text is handled too
+                self.model = TextModel.from_overstrike_text(self.view, content)
                 self.view.render()
                 self.modified = False
         except FileNotFoundError:
@@ -402,7 +408,11 @@ class Editor:
             True if save succeeded, False otherwise
         """
         try:
-            content = '\n'.join(self.model.paragraphs)
+            # Serialize with overstrike to preserve bold/underline
+            try:
+                content = self.model.to_overstrike_text()
+            except Exception:
+                content = '\n'.join(self.model.paragraphs)
 
             # Write to a temporary file in the same directory for atomic save
             # This ensures we're on the same filesystem for the rename operation
@@ -565,7 +575,11 @@ class Editor:
             self.status_message = "Print cancelled"
         elif result.action == PrintAction.PRINT:
             # Print to printer
-            self._print_to_printer(dialog.pages, result.printer_name, result.double_sided)
+            pf = PrintFormatter(self.model.paragraphs, double_spacing=dialog.double_spacing, styles=getattr(self.model, 'styles', None))
+            pf.format_pages()
+            page_runs = pf.get_page_runs()
+            pages_for_print = pf.pages
+            self._print_to_printer(pages_for_print, result.printer_name, result.double_sided, page_runs)
         elif result.action == PrintAction.SAVE_PS:
             # Save to PS file - prompt for filename
             self.prompt_mode = 'ps_filename'
@@ -581,7 +595,7 @@ class Editor:
         if hasattr(self, '_rendered_once'):
             delattr(self, '_rendered_once')
 
-    def _print_to_printer(self, pages, printer_name, double_sided):
+    def _print_to_printer(self, pages, printer_name, double_sided, page_runs=None):
         """Submit print job to printer.
 
         Args:
@@ -595,6 +609,12 @@ class Editor:
 
         # Perform the print operation
         output = PrintOutput()
+        # Set runs on output if there are any styled runs
+        if page_runs:
+            # Check if there are any non-empty run lines
+            has_styled_content = any(any(line_runs for line_runs in page if line_runs) for page in page_runs)
+            if has_styled_content:
+                output.page_runs = page_runs
         success, error = output.print_to_printer(pages, printer_name, double_sided)
 
         if success:
@@ -621,7 +641,20 @@ class Editor:
             return
 
         # Perform the save operation
-        success, message = output.save_to_file(pages, filename)
+        pf = PrintFormatter(self.model.paragraphs, double_spacing=self.spacing_double, styles=getattr(self.model, 'styles', None))
+        pf.format_pages()
+        runs = pf.get_page_runs()
+        
+        # Set runs on output if there are any styled runs
+        if runs:
+            # Check if there are any non-empty run lines
+            has_styled_content = any(any(line_runs for line_runs in page if line_runs) for page in runs)
+            if has_styled_content:
+                output.page_runs = runs
+        
+        # Use the pages from the formatter
+        pages_for_save = pf.pages
+        success, message = output.save_to_file(pages_for_save, filename)
 
         if success:
             if message:  # If there's a message

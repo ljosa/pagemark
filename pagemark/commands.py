@@ -358,6 +358,9 @@ class CommandRegistry:
         self.register((KeyType.SPECIAL, 'backspace'), BackspaceCommand())
         self.register((KeyType.CTRL, 'd'), DeleteCharCommand())
         self.register((KeyType.CTRL, 'k'), KillLineCommand())
+        # Style toggles
+        self.register((KeyType.CTRL, 'b'), ToggleBoldCommand())
+        self.register((KeyType.CTRL, 'u'), ToggleUnderlineCommand())
         self.register((KeyType.ALT, 'backspace'), KillWordCommand())
         self.register((KeyType.ALT, 'd'), ForwardKillWordCommand())
         self.register((KeyType.SPECIAL, 'enter'), InsertNewlineCommand())
@@ -434,3 +437,73 @@ class PageUpCommand(MovementCommand):
         return False
     def _move(self, editor, key_event):
         editor.view.scroll_page_up()
+class ToggleBoldCommand(EditCommand):
+    def _edit(self, editor, key_event):
+        model = editor.model
+        flag = model.STYLE_BOLD
+        # Apply to selection if present; otherwise toggle caret style
+        if model.selection_start is not None and model.selection_end is not None:
+            # Normalize selection
+            start = model.selection_start
+            end = model.selection_end
+            if (start.paragraph_index > end.paragraph_index or
+                (start.paragraph_index == end.paragraph_index and start.character_index > end.character_index)):
+                start, end = end, start
+            # Set bold for all selected characters (mixed selection sets attribute)
+            model._sync_styles_length()
+            if start.paragraph_index == end.paragraph_index:
+                pi = start.paragraph_index
+                st = model.styles[pi]
+                for i in range(start.character_index, min(end.character_index, len(st))):
+                    st[i] |= flag
+            else:
+                # First paragraph segment
+                pi = start.paragraph_index
+                st = model.styles[pi]
+                for i in range(start.character_index, len(st)):
+                    st[i] |= flag
+                # Middle paragraphs
+                for pi in range(start.paragraph_index+1, end.paragraph_index):
+                    st = model.styles[pi]
+                    for i in range(0, len(st)):
+                        st[i] |= flag
+                # Last paragraph segment
+                pi = end.paragraph_index
+                st = model.styles[pi]
+                for i in range(0, min(end.character_index, len(st))):
+                    st[i] |= flag
+        else:
+            # Toggle caret style bit
+            model.caret_style ^= flag
+
+class ToggleUnderlineCommand(EditCommand):
+    def _edit(self, editor, key_event):
+        model = editor.model
+        flag = model.STYLE_UNDER
+        if model.selection_start is not None and model.selection_end is not None:
+            start = model.selection_start
+            end = model.selection_end
+            if (start.paragraph_index > end.paragraph_index or
+                (start.paragraph_index == end.paragraph_index and start.character_index > end.character_index)):
+                start, end = end, start
+            model._sync_styles_length()
+            if start.paragraph_index == end.paragraph_index:
+                pi = start.paragraph_index
+                st = model.styles[pi]
+                for i in range(start.character_index, min(end.character_index, len(st))):
+                    st[i] |= flag
+            else:
+                pi = start.paragraph_index
+                st = model.styles[pi]
+                for i in range(start.character_index, len(st)):
+                    st[i] |= flag
+                for pi in range(start.paragraph_index+1, end.paragraph_index):
+                    st = model.styles[pi]
+                    for i in range(0, len(st)):
+                        st[i] |= flag
+                pi = end.paragraph_index
+                st = model.styles[pi]
+                for i in range(0, min(end.character_index, len(st))):
+                    st[i] |= flag
+        else:
+            model.caret_style ^= flag

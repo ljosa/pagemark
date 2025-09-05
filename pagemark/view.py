@@ -121,6 +121,7 @@ class TerminalTextView(TextView):
     num_columns: int
     first_paragraph_line_offset: int = 0
     lines: list[str] = []
+    line_styles: list[list[int]] = []  # per-line style flags per column (bold/underline)
     visual_cursor_y: int = 0
     visual_cursor_x: int = 0  # Store visual horizontal position
     desired_x: int = 0  # Desired X position for up/down navigation
@@ -259,7 +260,8 @@ class TerminalTextView(TextView):
     def render(self):
         paragraph_index = self.start_paragraph_index
         # First paragraph
-        para_lines, para_counts = render_paragraph(self.model.paragraphs[paragraph_index], self.num_columns)
+        para = self.model.paragraphs[paragraph_index]
+        para_lines, para_counts = render_paragraph(para, self.num_columns)
         if self.first_paragraph_line_offset == 0:
             start_position = CursorPosition(paragraph_index, 0)
         else:
@@ -267,6 +269,7 @@ class TerminalTextView(TextView):
         
         # Build lines with page breaks
         self.lines = []
+        self.line_styles = []
         doc_line_start = self._get_document_line_number(paragraph_index, self.first_paragraph_line_offset)
         
         # Add lines from first paragraph
@@ -276,7 +279,15 @@ class TerminalTextView(TextView):
                 break
             doc_line = doc_line_start + i
             # Add the actual content line
-            self.lines.append(para_lines[self.first_paragraph_line_offset + i])
+            line_text = para_lines[self.first_paragraph_line_offset + i]
+            self.lines.append(line_text)
+            # Build style line from model.styles and paragraph boundaries
+            start_ci = 0 if (self.first_paragraph_line_offset + i) == 0 else para_counts[self.first_paragraph_line_offset + i - 1]
+            end_ci = para_counts[self.first_paragraph_line_offset + i]
+            st = self.model.styles[paragraph_index] if hasattr(self.model, 'styles') else []
+            style_slice = st[start_ci:end_ci] if st else [0]*len(line_text)
+            style_slice = (style_slice + [0]*max(0, len(line_text)-len(style_slice)))[:len(line_text)]
+            self.line_styles.append(style_slice)
             # Check if there's more content after this line
             has_more_content = (i < lines_wanted - 1) or (paragraph_index + 1 < len(self.model.paragraphs))
             # Add page break if needed and there's more content
@@ -292,14 +303,22 @@ class TerminalTextView(TextView):
         # Remaining paragraphs
         while len(self.lines) < self.num_rows and paragraph_index + 1 < len(self.model.paragraphs):
             paragraph_index += 1
-            para_lines, para_counts = render_paragraph(self.model.paragraphs[paragraph_index], self.num_columns)
+            para = self.model.paragraphs[paragraph_index]
+            para_lines, para_counts = render_paragraph(para, self.num_columns)
             
             for i in range(len(para_lines)):
                 if len(self.lines) >= self.num_rows:
                     break
                 doc_line = doc_line_start + doc_lines_added
                 # Add the actual content line
-                self.lines.append(para_lines[i])
+                line_text = para_lines[i]
+                self.lines.append(line_text)
+                st = self.model.styles[paragraph_index] if hasattr(self.model, 'styles') else []
+                start_ci = 0 if i == 0 else para_counts[i-1]
+                end_ci = para_counts[i]
+                style_slice = st[start_ci:end_ci] if st else [0]*len(line_text)
+                style_slice = (style_slice + [0]*max(0, len(line_text)-len(style_slice)))[:len(line_text)]
+                self.line_styles.append(style_slice)
                 doc_lines_added += 1
                 end_position = CursorPosition(paragraph_index, para_counts[i] + 1)
                 # Check if there's more content after this line
@@ -324,6 +343,7 @@ class TerminalTextView(TextView):
         # This happens when text exactly fills a line and cursor is after it
         if self.visual_cursor_y == len(self.lines) and len(self.lines) < self.num_rows:
             self.lines.append("")
+            self.line_styles.append([])
 
     def _set_visual_cursor_position(self):
         # Set visual cursor position accounting for page break lines

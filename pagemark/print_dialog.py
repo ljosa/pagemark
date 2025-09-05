@@ -48,7 +48,8 @@ class PrintDialog:
         self.double_spacing = bool(double_spacing)
         
         # Format document into pages
-        self.formatter = PrintFormatter(model.paragraphs, double_spacing=self.double_spacing)
+        styles = getattr(model, 'styles', None)
+        self.formatter = PrintFormatter(model.paragraphs, double_spacing=self.double_spacing, styles=styles)
         self.pages = self.formatter.format_pages()
         
         # Create preview generator
@@ -102,7 +103,9 @@ class PrintDialog:
             # Apply initial spacing from session if provided
             try:
                 if hasattr(self, 'double_spacing'):
-                    self.formatter = PrintFormatter(self.model.paragraphs, double_spacing=self.double_spacing)
+                    styles = getattr(self, 'model', None)
+                    styles = getattr(self.model, 'styles', None)
+                    self.formatter = PrintFormatter(self.model.paragraphs, double_spacing=self.double_spacing, styles=styles)
                     self.pages = self.formatter.format_pages()
                     self.preview = PrintPreview(self.pages)
                     if self.current_page >= len(self.pages):
