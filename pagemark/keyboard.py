@@ -84,6 +84,11 @@ class KeyboardHandler:
                 'left','right','up','down','home','end','enter','backspace','delete',
                 'page_up','page_down','insert'
             }
+            # Map named whitespace tokens to regular characters
+            if base in ('space', 'spacebar', 'spc') and not mods:
+                return KeyEvent(key_type=KeyType.REGULAR, value=' ', raw=' ')
+            if base in ('tab',) and not mods:
+                return KeyEvent(key_type=KeyType.REGULAR, value='\t', raw='\t')
             # Control modified letters
             if 'ctrl' in mods and len(base) == 1:
                 # Map Ctrl-J / Ctrl-M to enter
