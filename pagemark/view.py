@@ -694,6 +694,39 @@ class TerminalTextView(TextView):
         self.model.cursor_position.paragraph_index = para_idx
         self.model.cursor_position.character_index = char_index
 
+    def _set_cursor_to_doc_line_desired_x(self, doc_line: int) -> None:
+        """Position cursor on a document line using desired_x, clamped visually.
+
+        Keeps the internal desired_x intact while placing the cursor at the
+        nearest valid position on the target visual line (respecting hanging
+        indent on wrapped lines).
+        """
+        para_idx, line_in_para = self._document_line_to_paragraph(doc_line)
+        if para_idx >= len(self.model.paragraphs):
+            return
+        para = self.model.paragraphs[para_idx]
+        para_lines, counts = render_paragraph(para, self.num_columns)
+        if line_in_para >= len(para_lines):
+            return
+        line_text = para_lines[line_in_para]
+        hanging_width = _get_hanging_indent_width(para)
+        if line_in_para > 0 and hanging_width > 0:
+            if self.desired_x <= hanging_width:
+                actual_x = hanging_width
+            else:
+                actual_x = min(self.desired_x, len(line_text))
+        else:
+            actual_x = min(self.desired_x, len(line_text))
+        if line_in_para == 0:
+            char_index = actual_x
+        else:
+            content_x = actual_x - (hanging_width if hanging_width > 0 else 0)
+            if content_x < 0:
+                content_x = 0
+            char_index = counts[line_in_para - 1] + content_x
+        self.model.cursor_position.paragraph_index = para_idx
+        self.model.cursor_position.character_index = char_index
+
     def scroll_page_down(self) -> None:
         # Scroll forward: one screenful minus context
         target_visual = max(1, self.num_rows - self.CONTEXT_LINES)
@@ -722,10 +755,10 @@ class TerminalTextView(TextView):
         # Adjust view
         self._set_view_top_to_doc_line(new_top)
 
-        # Cursor behavior: if cursor above new_top, move to top line
+        # Cursor behavior: if cursor above new_top, move to top line at desired_x
         cursor_line = self._cursor_doc_line()
         if cursor_line < new_top:
-            self._set_cursor_to_doc_line_start(new_top)
+            self._set_cursor_to_doc_line_desired_x(new_top)
         # Re-render
         self.render()
 
@@ -760,6 +793,6 @@ class TerminalTextView(TextView):
         total = self._total_document_lines()
         if cursor_line > approx_bottom:
             bottom_line = min(total - 1, approx_bottom)
-            self._set_cursor_to_doc_line_start(bottom_line)
+            self._set_cursor_to_doc_line_desired_x(bottom_line)
         # Re-render
         self.render()

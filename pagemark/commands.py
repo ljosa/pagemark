@@ -54,11 +54,20 @@ class RightCharCommand(MovementCommand):
 
 
 class UpLineCommand(MovementCommand):
+    def execute(self, editor: 'Editor', key_event: 'KeyEvent') -> bool:
+        # Preserve desired column on vertical move (no update_desired_x)
+        editor.model.clear_selection()
+        editor.view.move_cursor_up()
+        return False
     def _move(self, editor, key_event):
         editor.view.move_cursor_up()
 
 
 class DownLineCommand(MovementCommand):
+    def execute(self, editor: 'Editor', key_event: 'KeyEvent') -> bool:
+        editor.model.clear_selection()
+        editor.view.move_cursor_down()
+        return False
     def _move(self, editor, key_event):
         editor.view.move_cursor_down()
 
@@ -411,9 +420,17 @@ class CommandRegistry:
         return False
 
 class PageDownCommand(MovementCommand):
+    def execute(self, editor: 'Editor', key_event: 'KeyEvent') -> bool:
+        editor.model.clear_selection()
+        editor.view.scroll_page_down()
+        return False
     def _move(self, editor, key_event):
         editor.view.scroll_page_down()
 
 class PageUpCommand(MovementCommand):
+    def execute(self, editor: 'Editor', key_event: 'KeyEvent') -> bool:
+        editor.model.clear_selection()
+        editor.view.scroll_page_up()
+        return False
     def _move(self, editor, key_event):
         editor.view.scroll_page_up()
