@@ -15,6 +15,11 @@ class TerminalInterface:
         self.is_fullscreen = False
         self._curtsies_input: Optional[object] = None
         self._curtsies_active: bool = False
+        # Virtual screen state for minimal updates
+        self._last_lines: list[str] | None = None
+        self._last_status: str | None = None
+        self._last_left_margin: int | None = None
+        self._last_view_width: int | None = None
         
     def setup(self):
         """Enter fullscreen mode and prepare terminal."""
@@ -128,6 +133,79 @@ class TerminalInterface:
             print(self.term.move(self.term.height - 1, cursor_pos) + self.term.normal_cursor, end='', flush=True)
         else:
             # Normal cursor positioning in text
+            print(self.term.move(cursor_y, cursor_x + left_margin) + self.term.normal_cursor, end='', flush=True)
+
+    def _compose_display_line(self, line: str, view_width: int, selection: Optional[tuple[int, int]] | None) -> str:
+        """Compose a display line with optional selection highlighting, padded to width.
+
+        Returns the exact string to print at the line's position (including attributes).
+        """
+        display_line = line[:view_width].ljust(view_width)
+        if selection and 0 <= selection[0] < selection[1] <= len(display_line):
+            s, e = selection
+            return (
+                display_line[:s]
+                + self.term.reverse
+                + display_line[s:e]
+                + self.term.normal
+                + display_line[e:]
+            )
+        return display_line
+
+    def update_frame(
+        self,
+        lines: list[str],
+        cursor_y: int,
+        cursor_x: int,
+        left_margin: int,
+        view_width: int,
+        status_override: Optional[str] = None,
+        selection_ranges: Optional[list] = None,
+    ) -> None:
+        """Diff against last frame and write only changes.
+
+        Falls back to a full clear on first paint or when geometry changes.
+        """
+        # Determine if we need a full clear (first paint, resize, margin/width change)
+        need_full_clear = (
+            self._last_lines is None
+            or self._last_left_margin != left_margin
+            or self._last_view_width != view_width
+            or len(self._last_lines or []) != len(lines)
+        )
+
+        if need_full_clear:
+            print(self.term.home + self.term.clear, end='')
+            self._last_lines = ["" for _ in range(len(lines))]
+            self._last_status = None
+            self._last_left_margin = left_margin
+            self._last_view_width = view_width
+
+        # Draw each line if changed
+        for y, line in enumerate(lines):
+            sel = selection_ranges[y] if selection_ranges and y < len(selection_ranges) else None
+            new_disp = self._compose_display_line(line, view_width, sel)
+            old_disp = "" if self._last_lines is None else (self._last_lines[y] if y < len(self._last_lines) else "")
+            if new_disp != old_disp:
+                print(self.term.move(y, left_margin) + new_disp, end='')
+                if self._last_lines is not None and y < len(self._last_lines):
+                    self._last_lines[y] = new_disp
+
+        # Status line at bottom
+        if status_override:
+            status_text = status_override.ljust(self.term.width)
+        else:
+            help_text = "F1 for help"
+            status_text = (" " * (self.term.width - len(help_text) - 1)) + help_text
+        if status_text != (self._last_status or ""):
+            print(self.term.move(self.term.height - 1, 0) + status_text, end='')
+            self._last_status = status_text
+
+        # Finally position cursor
+        if status_override and (": " in status_override):
+            cursor_pos = len(status_override)
+            print(self.term.move(self.term.height - 1, cursor_pos) + self.term.normal_cursor, end='', flush=True)
+        else:
             print(self.term.move(cursor_y, cursor_x + left_margin) + self.term.normal_cursor, end='', flush=True)
     
     def draw_error_message(self, message1: str, message2: str = ""):
