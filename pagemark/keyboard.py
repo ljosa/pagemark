@@ -120,6 +120,9 @@ class KeyboardHandler:
                 if ch in ('j', 'm'):
                     return KeyEvent(key_type=KeyType.SPECIAL, value='enter', raw=key_str)
                 return KeyEvent(key_type=KeyType.CTRL, value=ch, raw=key_str, is_ctrl=True)
+            # Ctrl-^ (aka Ctrl-6) is ASCII 30 (RS). Treat as Ctrl-^.
+            if o == 30:
+                return KeyEvent(key_type=KeyType.CTRL, value='^', raw=key_str, is_ctrl=True)
 
         # Bare ESC
         if key_str == '\x1b':

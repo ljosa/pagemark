@@ -385,7 +385,7 @@ class CommandRegistry:
         self.register((KeyType.ALT, 'backspace'), KillWordCommand())
         self.register((KeyType.ALT, 'd'), ForwardKillWordCommand())
         self.register((KeyType.SPECIAL, 'enter'), InsertNewlineCommand())
-        self.register((KeyType.CTRL, '^'), CenterLineCommand())
+        self.register((KeyType.ALT, 'm'), CenterLineCommand())
         self.register((KeyType.CTRL, 't'), TransposeCharsCommand())
         self.register((KeyType.ALT, 't'), TransposeWordsCommand())
         self.register((KeyType.ALT, 'c'), CapitalizeWordCommand())

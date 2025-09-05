@@ -146,7 +146,7 @@ def test_center_line_command_through_registry():
     
     registry = CommandRegistry()
     
-    # Check that Ctrl-^ is registered
-    command = registry.get_command(KeyType.CTRL, '^')
+    # Check that Alt-m is registered
+    command = registry.get_command(KeyType.ALT, 'm')
     assert command is not None
     assert isinstance(command, CenterLineCommand)

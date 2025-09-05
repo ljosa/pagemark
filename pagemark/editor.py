@@ -277,7 +277,7 @@ class Editor:
             "EDITING",
             "  Ctrl-D    Delete char       Shift-←/→  Extend selection",
             "  Ctrl-K    Kill line         Shift-↑/↓  Extend selection",
-            "  Ctrl-^    Center line       Ctrl-X     Cut line",
+            "  Alt-M     Center line       Ctrl-X     Cut line",
             "  Ctrl-T    Transpose chars   Ctrl-C     Copy line",
             "  Alt-Bksp  Delete word       Ctrl-V     Paste",
             "  Ctrl-B    Bold toggle       Ctrl-U     Underline toggle",
