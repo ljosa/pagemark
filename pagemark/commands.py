@@ -81,6 +81,14 @@ class RightWordCommand(MovementCommand):
     def _move(self, editor, key_event):
         editor.model.right_word()
 
+class BackwardParagraphCommand(MovementCommand):
+    def _move(self, editor, key_event):
+        editor.model.backward_paragraph()
+
+class ForwardParagraphCommand(MovementCommand):
+    def _move(self, editor, key_event):
+        editor.model.forward_paragraph()
+
 
 class BeginningOfLineCommand(MovementCommand):
     def _move(self, editor, key_event):
@@ -349,6 +357,9 @@ class CommandRegistry:
         self.register((KeyType.ALT, 'right'), RightWordCommand())
         self.register((KeyType.ALT, 'b'), LeftWordCommand())
         self.register((KeyType.ALT, 'f'), RightWordCommand())
+        # Alt+Up/Down for paragraph movement
+        self.register((KeyType.ALT, 'up'), BackwardParagraphCommand())
+        self.register((KeyType.ALT, 'down'), ForwardParagraphCommand())
         
         # Line movement
         self.register((KeyType.CTRL, 'a'), BeginningOfLineCommand())

@@ -307,6 +307,72 @@ class TextModel:
             self.cursor_position.character_index = len(self.paragraphs[self.cursor_position.paragraph_index])
         self._update_caret_style_from_position()
         self.view.render()
+
+    def backward_paragraph(self) -> None:
+        """Move to beginning of previous non-empty paragraph (M-up).
+
+        Definition: The "previous non-empty paragraph" is the closest paragraph
+        at or before the current position that contains text (inclusive). If the
+        current paragraph is non-empty and the cursor is not at its beginning,
+        move to the beginning of the current paragraph. If already at the
+        beginning of a non-empty paragraph, move to the beginning of the
+        previous non-empty paragraph, if any. Empty paragraphs are skipped.
+        """
+        pi = self.cursor_position.paragraph_index
+
+        # If current paragraph is non-empty
+        if 0 <= pi < len(self.paragraphs) and len(self.paragraphs[pi]) > 0:
+            if self.cursor_position.character_index > 0:
+                # Move to beginning of current non-empty paragraph
+                self.cursor_position.character_index = 0
+            else:
+                # At beginning: find previous non-empty paragraph strictly before
+                j = pi - 1
+                while j >= 0 and len(self.paragraphs[j]) == 0:
+                    j -= 1
+                if j >= 0:
+                    self.cursor_position.paragraph_index = j
+                    self.cursor_position.character_index = 0
+                # else: already at first non-empty; no movement
+        else:
+            # Current is empty; go to nearest previous non-empty paragraph
+            j = pi - 1
+            while j >= 0 and len(self.paragraphs[j]) == 0:
+                j -= 1
+            if j >= 0:
+                self.cursor_position.paragraph_index = j
+                self.cursor_position.character_index = 0
+            # else: nothing before; no movement
+
+        self._update_caret_style_from_position()
+        self.view.render()
+
+    def forward_paragraph(self) -> None:
+        """Move to beginning of paragraph after the next non-empty (M-down).
+
+        Definition: The "next non-empty paragraph" is the closest paragraph at
+        or after the current position that contains text. Move to the beginning
+        of the non-empty paragraph following that, if it exists.
+        """
+        pi = self.cursor_position.paragraph_index
+
+        # Find next non-empty paragraph at or after current
+        j = pi
+        while j < len(self.paragraphs) and len(self.paragraphs[j]) == 0:
+            j += 1
+
+        if j < len(self.paragraphs):
+            # Find the next non-empty AFTER j
+            k = j + 1
+            while k < len(self.paragraphs) and len(self.paragraphs[k]) == 0:
+                k += 1
+            if k < len(self.paragraphs):
+                self.cursor_position.paragraph_index = k
+                self.cursor_position.character_index = 0
+            # else: no subsequent non-empty paragraph; no movement
+
+        self._update_caret_style_from_position()
+        self.view.render()
     
     def count_words(self) -> int:
         """Count the total number of words in the document.

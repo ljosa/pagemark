@@ -268,6 +268,7 @@ class Editor:
             "FILE                         NAVIGATION",
             "  Ctrl-S    Save              Alt-←/→    Word left/right",
             "  Ctrl-Q    Quit              Alt-B/F    Word left/right",
+            "                              Alt-↑/↓    Paragraph back/forward",
             "  Ctrl-P    Print             Ctrl-A     Beginning of line",
             "  Ctrl-W    Word count        Ctrl-E     End of line",
             "",
