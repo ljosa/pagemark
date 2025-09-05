@@ -9,6 +9,7 @@ from .print_preview import PrintPreview
 from .printer_utils import PrinterManager
 from .model import TextModel
 from .terminal import TerminalInterface
+from .keyboard import KeyboardHandler, KeyType
 
 
 class PrintAction(Enum):
@@ -94,37 +95,46 @@ class PrintDialog:
             # Hide cursor during dialog
             print(self.terminal.term.hide_cursor, end='', flush=True)
             
+            # Use the same input stack as the editor
+            handler = KeyboardHandler(self.terminal)
+
             while True:
                 self._render()
                 
-                # Get user input
-                key = self.terminal.get_key()
-                
-                if key in (blessed.keyboard.Keystroke('\x1b'), 'c', 'C'):
-                    # Escape or C - cancel
+                # Get user input (parsed)
+                ev = handler.get_key_event(timeout=None)
+                if not ev:
+                    continue
+
+                # Cancel: ESC or 'C'
+                if (ev.key_type == KeyType.SPECIAL and ev.value == 'escape') or (
+                    ev.key_type == KeyType.REGULAR and ev.value in ('c', 'C')
+                ):
                     return PrintOptions(action=PrintAction.CANCEL)
-                
-                elif key in ('p', 'P'):
-                    # Print/Save
+
+                # Print/Save: 'P'
+                if ev.key_type == KeyType.REGULAR and ev.value in ('p', 'P'):
                     return self._get_print_options()
-                
-                elif key in ('o', 'O'):
-                    # Cycle through output options
+
+                # Cycle output: 'O'
+                if ev.key_type == KeyType.REGULAR and ev.value in ('o', 'O'):
                     self.selected_output = (self.selected_output + 1) % len(self.output_options)
-                
-                elif key in ('d', 'D'):
-                    # Toggle double-sided
+                    continue
+
+                # Toggle double-sided: 'D'
+                if ev.key_type == KeyType.REGULAR and ev.value in ('d', 'D'):
                     self.double_sided = not self.double_sided
-                
-                elif key.name == 'KEY_PGUP':
-                    # Previous page
+                    continue
+
+                # Page navigation: PageUp/PageDown
+                if ev.key_type == KeyType.SPECIAL and ev.value in ('page_up', 'pageup'):
                     if self.current_page > 0:
                         self.current_page -= 1
-                
-                elif key.name == 'KEY_PGDOWN':
-                    # Next page
+                    continue
+                if ev.key_type == KeyType.SPECIAL and ev.value in ('page_down', 'pagedown'):
                     if self.current_page < len(self.pages) - 1:
                         self.current_page += 1
+                    continue
                         
         finally:
             # Restore cursor visibility
