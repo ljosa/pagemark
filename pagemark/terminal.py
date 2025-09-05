@@ -89,7 +89,7 @@ class TerminalInterface:
         
     def draw_lines(self, lines: list[str], cursor_y: int, cursor_x: int, 
                    left_margin: int = 0, view_width: int = 65, status_override: str = None,
-                   selection_ranges: list = None):
+                   selection_ranges: list = None, cursor_in_status: bool = False):
         """Draw text lines and position cursor with optional left margin.
         
         Args:
@@ -138,14 +138,8 @@ class TerminalInterface:
             print(self.term.move(self.term.height - 1, self.term.width - len(help_text) - 1), end='')
             print(help_text, end='')
         
-        # Position cursor (adjust for margin or for prompt input)
-        if status_override and (": " in status_override):
-            # Position cursor at end of current input
-            cursor_pos = len(status_override)
-            print(self.term.move(self.term.height - 1, cursor_pos) + self.term.normal_cursor, end='', flush=True)
-        else:
-            # Normal cursor positioning in text
-            print(self.term.move(cursor_y, cursor_x + left_margin) + self.term.normal_cursor, end='', flush=True)
+        # Position cursor
+        self._position_cursor(cursor_y, cursor_x, left_margin, status_override, cursor_in_status)
 
     def _compose_display_line(self, line: str, view_width: int, selection: Optional[tuple[int, int]] | None,
                                styles: Optional[list[int]] = None) -> str:
@@ -201,6 +195,7 @@ class TerminalInterface:
         status_override: Optional[str] = None,
         selection_ranges: Optional[list] = None,
         styles_by_line: Optional[list[list[int]]] = None,
+        cursor_in_status: bool = False,
     ) -> None:
         """Diff against last frame and write only changes.
 
@@ -243,10 +238,17 @@ class TerminalInterface:
             self._last_status = status_text
 
         # Finally position cursor
-        if status_override and (": " in status_override):
+        self._position_cursor(cursor_y, cursor_x, left_margin, status_override, cursor_in_status)
+    
+    def _position_cursor(self, cursor_y: int, cursor_x: int, left_margin: int, 
+                         status_override: Optional[str], cursor_in_status: bool) -> None:
+        """Position the cursor either in the status line or in the text area."""
+        if cursor_in_status and status_override:
+            # Position cursor at end of status prompt
             cursor_pos = len(status_override)
             print(self.term.move(self.term.height - 1, cursor_pos) + self.term.normal_cursor, end='', flush=True)
         else:
+            # Position cursor in text area
             print(self.term.move(cursor_y, cursor_x + left_margin) + self.term.normal_cursor, end='', flush=True)
     
     def draw_error_message(self, message1: str, message2: str = ""):

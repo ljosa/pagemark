@@ -218,6 +218,11 @@ class WordCountCommand(SystemCommand):
         word_count = editor.model.count_words()
         editor.status_message = f"{word_count} words"
 
+class IncrementalSearchCommand(SystemCommand):
+    def _execute_system(self, editor, key_event):
+        # Begin incremental search mode
+        editor.start_incremental_search()
+
 
 class CenterLineCommand(EditCommand):
     def _edit(self, editor, key_event):
@@ -378,6 +383,7 @@ class CommandRegistry:
         # Editing commands
         self.register((KeyType.SPECIAL, 'backspace'), BackspaceCommand())
         self.register((KeyType.CTRL, 'd'), DeleteCharCommand())
+        self.register((KeyType.CTRL, 'f'), IncrementalSearchCommand())
         self.register((KeyType.CTRL, 'k'), KillLineCommand())
         # Style toggles
         self.register((KeyType.CTRL, 'b'), ToggleBoldCommand())

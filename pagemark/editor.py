@@ -7,6 +7,7 @@ import signal
 import termios
 import tempfile
 import errno
+from typing import Optional
 from .terminal import TerminalInterface
 from .model import TextModel
 from .view import TerminalTextView
@@ -50,6 +51,9 @@ class Editor:
         self.help_visible = False  # Track if help screen is visible
         # Undo/redo
         self.undo = UndoManager()
+        # Incremental search state
+        self._isearch_origin = None  # tuple[int,int] of original cursor
+        self._isearch_last_match = None  # tuple[int,int] of last match start
 
     def _handle_resize(self, signum, frame):
         """Handle terminal resize signal."""
@@ -171,14 +175,28 @@ class Editor:
 
         # Prepare status override if in prompt mode or showing a message
         status_override = None
+        cursor_in_status = False  # Flag to indicate if cursor should be in status line
+        
         if self.prompt_mode in ('save_filename', 'save_filename_quit'):
             status_override = f" File to save in: {self.prompt_input}"
+            cursor_in_status = True
         elif self.prompt_mode == 'quit_confirm':
             status_override = " Save file? (y, n) "
+            cursor_in_status = True
         elif self.prompt_mode == 'ps_filename':
             status_override = f" Save PS as: {self.prompt_input}"
+            cursor_in_status = True
+        elif self.prompt_mode == 'isearch':
+            not_found = ''
+            if self.prompt_input:
+                # Indicate not found if we have a query but no last match
+                if self._isearch_last_match is None:
+                    not_found = ' (no match)'
+            status_override = f" I-search: {self.prompt_input}{not_found}"
+            cursor_in_status = False  # Cursor stays in text during search
         elif self.status_message:
             status_override = f" {self.status_message}"
+            cursor_in_status = False
 
         # Get selection ranges for highlighting and diff-paint frame
         selection_ranges = self.view.get_selection_ranges()
@@ -192,6 +210,7 @@ class Editor:
             status_override,
             selection_ranges,
             getattr(self.view, 'line_styles', None),
+            cursor_in_status=cursor_in_status
         )
 
     def _snapshot_state(self) -> ModelSnapshot:
@@ -268,7 +287,7 @@ class Editor:
             "FILE                         NAVIGATION",
             "  Ctrl-S    Save              Alt-←/→    Word left/right",
             "  Ctrl-Q    Quit              Alt-B/F    Word left/right",
-            "                              Alt-↑/↓    Paragraph back/forward",
+            "  Ctrl-F    Search            Alt-↑/↓    Paragraph back/forward",
             "  Ctrl-P    Print             Ctrl-A     Beginning of line",
             "  Ctrl-W    Word count        Ctrl-E     End of line",
             "                              Home       Beginning of document",
@@ -370,7 +389,152 @@ class Editor:
         elif self.prompt_mode == 'ps_filename':
             self._handle_ps_filename_prompt(key_event)
             return True
+        elif self.prompt_mode == 'isearch':
+            self._handle_isearch_prompt(key_event)
+            return True
         return False
+
+    # --- Incremental search (Ctrl-F) ---
+    def start_incremental_search(self) -> None:
+        """Enter incremental search mode starting at current cursor."""
+        # Check for empty document
+        if not self.model.paragraphs:
+            self.status_message = "No text to search"
+            return
+            
+        cp = self.model.cursor_position
+        self._isearch_origin = (cp.paragraph_index, cp.character_index)
+        self._isearch_last_match = None
+        self.prompt_mode = 'isearch'
+        self.prompt_input = ""
+        # Show immediate prompt
+        self.status_message = None
+
+    # ASCII printable character threshold
+    _MIN_PRINTABLE_ORD = 32
+    
+    def _handle_isearch_prompt(self, key_event: KeyEvent) -> None:
+        """Handle key events during incremental search."""
+        # Cancel on ESC or Ctrl-G
+        if (key_event.key_type == KeyType.SPECIAL and key_event.value == 'escape') or \
+           (key_event.key_type == KeyType.CTRL and key_event.value == 'g'):
+            # Restore original cursor position
+            if self._isearch_origin is not None:
+                pi, ci = self._isearch_origin
+                self.model.cursor_position.paragraph_index = pi
+                self.model.cursor_position.character_index = ci
+                self.model._update_caret_style_from_position()
+                self.view.render()
+            self.prompt_mode = None
+            self.prompt_input = ""
+            self._isearch_origin = None
+            self._isearch_last_match = None
+            return
+
+        # Accept with Enter: keep current location, exit
+        if key_event.key_type == KeyType.SPECIAL and key_event.value == 'enter':
+            self.prompt_mode = None
+            self._isearch_origin = None
+            self._isearch_last_match = None
+            return
+
+        # Next match on Ctrl-F while in isearch and have a query
+        if key_event.key_type == KeyType.CTRL and key_event.value == 'f':
+            if self.prompt_input:
+                self._isearch_find_next(from_current=True)
+            return
+
+        # Backspace edits query
+        if key_event.key_type == KeyType.SPECIAL and key_event.value == 'backspace':
+            if self.prompt_input:
+                self.prompt_input = self.prompt_input[:-1]
+                self._isearch_update()
+            else:
+                # Nothing to delete; keep origin
+                pass
+            return
+
+        # Regular character appends to query
+        if key_event.key_type == KeyType.REGULAR:
+            ch = key_event.value
+            # Accept any Unicode character that's printable
+            if ch and (ch.isprintable() or ch == ' '):
+                self.prompt_input += ch
+                self._isearch_update()
+            return
+
+        # Ignore other keys in isearch
+        return
+
+    def _isearch_update(self) -> None:
+        """Update search position after query change."""
+        if not self.prompt_input:
+            # No query: reset to origin
+            if self._isearch_origin is not None:
+                pi, ci = self._isearch_origin
+                self.model.cursor_position.paragraph_index = pi
+                self.model.cursor_position.character_index = ci
+                self.model._update_caret_style_from_position()
+                self.view.render()
+                self._isearch_last_match = None
+            return
+        # Find first match at/after origin
+        if self._isearch_origin is None:
+            # Safety: use current pos if origin lost
+            cp = self.model.cursor_position
+            start = (cp.paragraph_index, cp.character_index)
+        else:
+            start = self._isearch_origin
+        match = self._find_forward(self.prompt_input, start)
+        if match is not None:
+            self._move_cursor_to(match)
+            self._isearch_last_match = match
+        else:
+            # No match found - stay at current position
+            self._isearch_last_match = None
+
+    def _isearch_find_next(self, from_current: bool = False) -> None:
+        """Find next match after last match (or origin if none)."""
+        if not self.prompt_input:
+            return
+        if from_current and self._isearch_last_match is not None:
+            pi, ci = self._isearch_last_match
+            start = (pi, ci + 1)
+        elif self._isearch_last_match is not None:
+            start = (self._isearch_last_match[0], self._isearch_last_match[1] + 1)
+        else:
+            start = self._isearch_origin or (self.model.cursor_position.paragraph_index, self.model.cursor_position.character_index)
+        match = self._find_forward(self.prompt_input, start)
+        if match is not None:
+            self._move_cursor_to(match)
+            self._isearch_last_match = match
+
+    def _move_cursor_to(self, pos: tuple[int, int]) -> None:
+        pi, ci = pos
+        self.model.cursor_position.paragraph_index = pi
+        self.model.cursor_position.character_index = ci
+        self.model._update_caret_style_from_position()
+        self.view.render()
+
+    def _find_forward(self, query: str, start: tuple[int, int]) -> Optional[tuple[int, int]]:
+        """Find query at/after start. Case-insensitive search.
+
+        Returns start position of match or None.
+        """
+        q = query.lower()
+        paras = self.model.paragraphs
+        start_pi, start_ci = start
+        # Current paragraph from start_ci
+        if 0 <= start_pi < len(paras):
+            idx = paras[start_pi].lower().find(q, max(0, start_ci))
+            if idx != -1:
+                return (start_pi, idx)
+        # Subsequent paragraphs
+        for pi in range(start_pi + 1, len(paras)):
+            idx = paras[pi].lower().find(q)
+            if idx != -1:
+                return (pi, idx)
+        return None
 
     def _handle_backspace(self):
         """Handle backspace key - delete character before cursor."""
