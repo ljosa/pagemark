@@ -55,6 +55,15 @@ class TerminalInterface:
     def clear_screen(self):
         """Clear the entire screen."""
         print(self.term.clear)
+    
+    def move_cursor(self, y: int, x: int, left_margin: int = 0):
+        """Move the cursor to a position without redrawing the screen."""
+        print(self.term.move(y, x + left_margin) + self.term.normal_cursor, end='', flush=True)
+    
+    def draw_line(self, y: int, text: str, left_margin: int = 0, view_width: int = 65):
+        """Redraw a single line at row y without clearing the screen."""
+        display_line = (text[:view_width]).ljust(view_width)
+        print(self.term.move(y, left_margin) + display_line, end='', flush=True)
         
     def draw_lines(self, lines: list[str], cursor_y: int, cursor_x: int, 
                    left_margin: int = 0, view_width: int = 65, status_override: str = None,

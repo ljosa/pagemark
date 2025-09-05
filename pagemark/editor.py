@@ -134,9 +134,9 @@ class Editor:
                         # Handle input (non-blocking since select says it's ready)
                         key_event = self.keyboard.get_key_event(timeout=0)
                         if key_event:
-                            # Process all keys normally
-                            self._handle_key_event(key_event)
-                            need_draw = True
+                            # Process key; decide if full redraw is needed
+                            full_redraw = self._handle_key_event(key_event)
+                            need_draw = bool(full_redraw)
 
                 # Restore terminal settings before exiting cbreak
                 if old_settings:
@@ -304,16 +304,18 @@ class Editor:
         if hasattr(self, '_rendered_once'):
             delattr(self, '_rendered_once')
 
-    def _handle_key_event(self, key_event: KeyEvent):
+    def _handle_key_event(self, key_event: KeyEvent) -> bool:
         """Handle a keyboard event.
 
         Args:
             key_event: KeyEvent object with parsed key information
+        Returns:
+            True if a full redraw is needed; False if drawing was already handled (fast path)
         """
         # If help is visible, any key dismisses it
         if self.help_visible:
             self.hide_help()
-            return
+            return True
 
         # Clear status message on any keypress (except in prompt mode)
         if self.status_message and not self.prompt_mode:
@@ -321,21 +323,68 @@ class Editor:
 
         # Handle prompt modes first
         if self._handle_prompt_mode(key_event):
-            return
+            return True
 
         # Don't process other keys if in error mode
         if self.error_mode:
-            return
+            return True
 
         # Handle ESC key by itself
         if key_event.key_type == KeyType.SPECIAL and key_event.value == 'escape':
             # Just ESC - could be used for canceling operations
-            return
+            return True
 
         # Try to execute command from registry
+        # Capture potential fast-path context before mutation
+        pre_visual_y = getattr(self.view, 'visual_cursor_y', 0)
+        pre_visual_x = getattr(self.view, 'visual_cursor_x', 0)
+        pre_lines = getattr(self.view, 'lines', [])
+        pre_line = pre_lines[pre_visual_y] if (pre_lines and 0 <= pre_visual_y < len(pre_lines)) else None
+        # Execute command
         was_modified = self.command_registry.execute(self, key_event)
         if was_modified:
             self.modified = True
+            # Attempt fast-path for single printable character insert with room on current line
+            if (
+                key_event.key_type == KeyType.REGULAR
+                and isinstance(key_event.value, str)
+                and len(key_event.value) == 1
+                and (ord(key_event.value) >= 32 or key_event.value == '\t')
+                and not self.prompt_mode
+                and not self.error_mode
+                and not self.help_visible
+                and pre_line is not None
+            ):
+                # Reject on page-break lines
+                try:
+                    is_page_break = self.view._is_page_break_line(pre_line)
+                except Exception:
+                    is_page_break = False
+                if not is_page_break:
+                    # Ensure there's space on the visual line
+                    if len(pre_line) < self.VIEW_WIDTH and pre_visual_x <= len(pre_line):
+                        # Construct the updated line content
+                        ch = key_event.value
+                        new_line = (pre_line[:pre_visual_x] + ch + pre_line[pre_visual_x:])
+                        if len(new_line) > self.VIEW_WIDTH:
+                            # Would wrap; fall back to full redraw
+                            return True
+                        # Update in-memory line cache
+                        try:
+                            self.view.lines[pre_visual_y] = new_line
+                        except Exception:
+                            return True
+                        # Redraw only the affected line and move cursor
+                        left_margin = (self.terminal.width - self.VIEW_WIDTH) // 2
+                        self.terminal.draw_line(pre_visual_y, new_line, left_margin, self.VIEW_WIDTH)
+                        # Advance visual cursor one to the right
+                        self.view.visual_cursor_x = pre_visual_x + 1
+                        self.view.desired_x = self.view.visual_cursor_x
+                        self.terminal.move_cursor(pre_visual_y, self.view.visual_cursor_x, left_margin)
+                        # Fast path handled the drawing
+                        return False
+
+        return True
 
     def _handle_prompt_mode(self, key_event: KeyEvent) -> bool:
         """Handle input in prompt mode.
