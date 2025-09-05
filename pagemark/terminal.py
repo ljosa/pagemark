@@ -65,6 +65,18 @@ class TerminalInterface:
     def clear_screen(self):
         """Clear the entire screen."""
         print(self.term.clear)
+
+    def invalidate_frame(self) -> None:
+        """Invalidate cached frame so next update does a full clear.
+
+        Use this when a modal UI (e.g., print dialog) has drawn arbitrary
+        content to the screen and we need the editor to repaint from
+        a clean slate on the next draw.
+        """
+        self._last_lines = None
+        self._last_status = None
+        self._last_left_margin = None
+        self._last_view_width = None
     
     def move_cursor(self, y: int, x: int, left_margin: int = 0):
         """Move the cursor to a position without redrawing the screen."""

@@ -2,7 +2,7 @@
 
 from typing import List, Tuple, Optional
 from .view import render_paragraph
-from .view import _get_hanging_indent_width
+from .view import get_hanging_indent_width
 
 
 class PrintFormatter:
@@ -60,7 +60,7 @@ class PrintFormatter:
                         # Determine visual indent for wrapped bullet/numbered paragraphs
                         visual_indent = 0
                         if li > 0:
-                            hiw = _get_hanging_indent_width(paragraph)
+                            hiw = get_hanging_indent_width(paragraph)
                             if hiw > 0:
                                 visual_indent = hiw
                         x = max(visual_indent, 0)

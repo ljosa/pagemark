@@ -102,7 +102,8 @@ showpage
                         if line_runs:
                             has_runs = True
                             break
-                except Exception:
+                except (IndexError, TypeError):
+                    # page_styles may be shorter than pages or contain invalid data
                     has_runs = False
             if has_runs:
                 ps_content.append("% StyledRuns: yes\n")

@@ -37,6 +37,16 @@ def _get_hanging_indent_width(paragraph: str) -> int:
     return 0
 
 
+def get_hanging_indent_width(paragraph: str) -> int:
+    """Public helper: return hanging indent width for bullets/numbers.
+
+    This wraps the internal implementation to provide a stable API for
+    other modules (e.g., printing/formatting) without importing a private
+    function.
+    """
+    return _get_hanging_indent_width(paragraph)
+
+
 def render_paragraph(paragraph: str, num_columns: int) -> tuple[list[str], list[int]]:
     """Render into a list of lines, with word wrap and hanging indents.
 

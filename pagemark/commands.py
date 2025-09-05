@@ -437,99 +437,121 @@ class PageUpCommand(MovementCommand):
         return False
     def _move(self, editor, key_event):
         editor.view.scroll_page_up()
-class ToggleBoldCommand(EditCommand):
+class ToggleStyleCommand(EditCommand):
+    """Base class for style toggle commands (bold/underline)."""
+    
+    def __init__(self, style_flag: int):
+        """Initialize with the style flag to toggle."""
+        self.style_flag = style_flag
+    
     def _edit(self, editor, key_event):
+        """Toggle the style for selection or caret."""
         model = editor.model
-        flag = model.STYLE_BOLD
+        flag = self.style_flag
+        
         # Apply to selection if present; otherwise toggle caret style
         if model.selection_start is not None and model.selection_end is not None:
-            # Normalize selection
-            start = model.selection_start
-            end = model.selection_end
-            if (start.paragraph_index > end.paragraph_index or
-                (start.paragraph_index == end.paragraph_index and start.character_index > end.character_index)):
-                start, end = end, start
-            model._sync_styles_length()
-            # Determine if every character has the flag
-            def every_has_flag(pi, start_idx, end_idx):
-                st = model.styles[pi]
-                end_idx = min(end_idx, len(st))
-                for i in range(start_idx, end_idx):
-                    if (st[i] & flag) == 0:
-                        return False
-                return True
-            def apply_flag(pi, start_idx, end_idx, set_flag: bool):
-                st = model.styles[pi]
-                end_idx = min(end_idx, len(st))
-                for i in range(start_idx, end_idx):
-                    if set_flag:
-                        st[i] |= flag
-                    else:
-                        st[i] &= ~flag
-            # Compute whether to clear or set
-            all_have = True
-            if start.paragraph_index == end.paragraph_index:
-                all_have = every_has_flag(start.paragraph_index, start.character_index, end.character_index)
-            else:
-                # First partial
-                all_have = all_have and every_has_flag(start.paragraph_index, start.character_index, len(model.styles[start.paragraph_index]))
-                # Middles
-                for pi in range(start.paragraph_index+1, end.paragraph_index):
-                    all_have = all_have and every_has_flag(pi, 0, len(model.styles[pi]))
-                # Last partial
-                all_have = all_have and every_has_flag(end.paragraph_index, 0, end.character_index)
-            # Apply
-            if start.paragraph_index == end.paragraph_index:
-                apply_flag(start.paragraph_index, start.character_index, end.character_index, set_flag=not all_have)
-            else:
-                apply_flag(start.paragraph_index, start.character_index, len(model.styles[start.paragraph_index]), set_flag=not all_have)
-                for pi in range(start.paragraph_index+1, end.paragraph_index):
-                    apply_flag(pi, 0, len(model.styles[pi]), set_flag=not all_have)
-                apply_flag(end.paragraph_index, 0, end.character_index, set_flag=not all_have)
+            self._toggle_selection_style(model, flag)
         else:
             # Toggle caret style bit
             model.caret_style ^= flag
-
-class ToggleUnderlineCommand(EditCommand):
-    def _edit(self, editor, key_event):
-        model = editor.model
-        flag = model.STYLE_UNDER
-        if model.selection_start is not None and model.selection_end is not None:
-            start = model.selection_start
-            end = model.selection_end
-            if (start.paragraph_index > end.paragraph_index or
-                (start.paragraph_index == end.paragraph_index and start.character_index > end.character_index)):
-                start, end = end, start
-            model._sync_styles_length()
-            def every_has_flag(pi, start_idx, end_idx):
-                st = model.styles[pi]
-                end_idx = min(end_idx, len(st))
-                for i in range(start_idx, end_idx):
-                    if (st[i] & flag) == 0:
-                        return False
-                return True
-            def apply_flag(pi, start_idx, end_idx, set_flag: bool):
-                st = model.styles[pi]
-                end_idx = min(end_idx, len(st))
-                for i in range(start_idx, end_idx):
-                    if set_flag:
-                        st[i] |= flag
-                    else:
-                        st[i] &= ~flag
-            all_have = True
-            if start.paragraph_index == end.paragraph_index:
-                all_have = every_has_flag(start.paragraph_index, start.character_index, end.character_index)
-            else:
-                all_have = all_have and every_has_flag(start.paragraph_index, start.character_index, len(model.styles[start.paragraph_index]))
-                for pi in range(start.paragraph_index+1, end.paragraph_index):
-                    all_have = all_have and every_has_flag(pi, 0, len(model.styles[pi]))
-                all_have = all_have and every_has_flag(end.paragraph_index, 0, end.character_index)
-            if start.paragraph_index == end.paragraph_index:
-                apply_flag(start.paragraph_index, start.character_index, end.character_index, set_flag=not all_have)
-            else:
-                apply_flag(start.paragraph_index, start.character_index, len(model.styles[start.paragraph_index]), set_flag=not all_have)
-                for pi in range(start.paragraph_index+1, end.paragraph_index):
-                    apply_flag(pi, 0, len(model.styles[pi]), set_flag=not all_have)
-                apply_flag(end.paragraph_index, 0, end.character_index, set_flag=not all_have)
+    
+    def _toggle_selection_style(self, model, flag: int):
+        """Toggle style flag for the current selection."""
+        # Normalize selection
+        start = model.selection_start
+        end = model.selection_end
+        if (start.paragraph_index > end.paragraph_index or
+            (start.paragraph_index == end.paragraph_index and start.character_index > end.character_index)):
+            start, end = end, start
+        
+        model._sync_styles_length()
+        
+        # Check if all selected characters have the flag
+        all_have = self._check_all_have_flag(model, start, end, flag)
+        
+        # Apply the toggle (if all have it, clear; otherwise set)
+        self._apply_flag_to_selection(model, start, end, flag, not all_have)
+    
+    def _check_all_have_flag(self, model, start, end, flag: int) -> bool:
+        """Check if all characters in selection have the flag."""
+        if start.paragraph_index == end.paragraph_index:
+            # Single paragraph
+            styles = model.styles[start.paragraph_index]
+            end_idx = min(end.character_index, len(styles))
+            for i in range(start.character_index, end_idx):
+                if (styles[i] & flag) == 0:
+                    return False
         else:
-            model.caret_style ^= flag
+            # Multiple paragraphs
+            # First paragraph (partial)
+            styles = model.styles[start.paragraph_index]
+            for i in range(start.character_index, len(styles)):
+                if (styles[i] & flag) == 0:
+                    return False
+            
+            # Middle paragraphs (complete)
+            for para_idx in range(start.paragraph_index + 1, end.paragraph_index):
+                styles = model.styles[para_idx]
+                for i in range(len(styles)):
+                    if (styles[i] & flag) == 0:
+                        return False
+            
+            # Last paragraph (partial)
+            styles = model.styles[end.paragraph_index]
+            end_idx = min(end.character_index, len(styles))
+            for i in range(end_idx):
+                if (styles[i] & flag) == 0:
+                    return False
+        
+        return True
+    
+    def _apply_flag_to_selection(self, model, start, end, flag: int, set_flag: bool):
+        """Apply or clear the flag for all characters in selection."""
+        if start.paragraph_index == end.paragraph_index:
+            # Single paragraph
+            self._apply_flag_to_range(model, start.paragraph_index, 
+                                     start.character_index, end.character_index,
+                                     flag, set_flag)
+        else:
+            # Multiple paragraphs
+            # First paragraph (partial)
+            self._apply_flag_to_range(model, start.paragraph_index,
+                                     start.character_index, len(model.styles[start.paragraph_index]),
+                                     flag, set_flag)
+            
+            # Middle paragraphs (complete)
+            for para_idx in range(start.paragraph_index + 1, end.paragraph_index):
+                self._apply_flag_to_range(model, para_idx,
+                                        0, len(model.styles[para_idx]),
+                                        flag, set_flag)
+            
+            # Last paragraph (partial)
+            self._apply_flag_to_range(model, end.paragraph_index,
+                                     0, end.character_index,
+                                     flag, set_flag)
+    
+    def _apply_flag_to_range(self, model, para_idx: int, start_idx: int, end_idx: int,
+                            flag: int, set_flag: bool):
+        """Apply or clear flag for a character range within a paragraph."""
+        styles = model.styles[para_idx]
+        end_idx = min(end_idx, len(styles))
+        for i in range(start_idx, end_idx):
+            if set_flag:
+                styles[i] |= flag
+            else:
+                styles[i] &= ~flag
+
+
+class ToggleBoldCommand(ToggleStyleCommand):
+    """Command to toggle bold style."""
+    def __init__(self):
+        from .model import StyleFlags
+        super().__init__(StyleFlags.BOLD)
+
+
+class ToggleUnderlineCommand(ToggleStyleCommand):
+    """Command to toggle underline style."""
+    def __init__(self):
+        from .model import StyleFlags
+        super().__init__(StyleFlags.UNDERLINE)

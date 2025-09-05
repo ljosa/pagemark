@@ -405,7 +405,8 @@ class Editor:
             # Serialize with overstrike to preserve bold/underline
             try:
                 content = self.model.to_overstrike_text()
-            except Exception:
+            except (AttributeError, IndexError, KeyError):
+                # Fall back to plain text if styles are corrupted or missing
                 content = '\n'.join(self.model.paragraphs)
 
             # Write to a temporary file in the same directory for atomic save
@@ -559,7 +560,8 @@ class Editor:
         # Pass spacing to dialog; actual page/preview rebuild handled in dialog.show()
         try:
             dialog.double_spacing = self.spacing_double
-        except Exception:
+        except AttributeError:
+            # Dialog may not have double_spacing attribute in older versions
             pass
         result = dialog.show()
 
@@ -585,7 +587,10 @@ class Editor:
         self.spacing_double = dialog.double_spacing
         self.view.set_double_spacing(self.spacing_double)
 
-        # Force redraw after returning from dialog
+        # Force full-screen redraw after returning from dialog
+        # The dialog draws outside the editor's managed frame, so invalidate
+        # the cached frame and force a re-render on the next loop iteration.
+        self.terminal.invalidate_frame()
         if hasattr(self, '_rendered_once'):
             delattr(self, '_rendered_once')
 
