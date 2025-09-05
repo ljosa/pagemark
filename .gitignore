@@ -8,3 +8,10 @@ wheels/
 
 # Virtual environments
 .venv
+
+# Tool caches
+.pytest_cache/
+.ruff_cache/
+
+# Generated at build time
+pagemark/_build_info.py

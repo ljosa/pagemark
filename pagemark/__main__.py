@@ -7,9 +7,7 @@ defined in `pyproject.toml`.
 from __future__ import annotations
 
 import sys
-from .editor import Editor
-from .terminal import TerminalInterface
-from .keyboard import KeyboardHandler, KeyEvent, KeyType
+from .version import get_version_string
 
 
 def _escape_bytes(s: str) -> str:
@@ -25,6 +23,8 @@ def run_keyboard_test() -> None:
     Ctrl-S/Ctrl-Q/Ctrl-C/Ctrl-V as input. Quit with ESC.
     """
     import termios, sys
+    from .terminal import TerminalInterface
+    from .keyboard import KeyboardHandler, KeyEvent, KeyType
 
     print("Keyboard test mode — press keys to see parsed events.")
     print("Quit with ESC.")
@@ -93,12 +93,17 @@ def run_keyboard_test() -> None:
 
 
 def main() -> None:
-    # Very small arg parsing to support keyboard test mode and optional filename
+    # Very small arg parsing to support keyboard test mode, version, and optional filename
     args = sys.argv[1:]
+    if args and args[0] in ("--version", "-V"):
+        print(get_version_string())
+        return
     if args and args[0] in ('--keytest', '--keyboard-test'):
         run_keyboard_test()
         return
 
+    # Lazy import to avoid importing UI deps for --version
+    from .editor import Editor
     editor = Editor()
     if args:
         editor.load_file(args[0])
