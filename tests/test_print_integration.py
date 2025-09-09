@@ -124,8 +124,8 @@ def test_save_to_ps_flow():
     with patch('pagemark.editor.PrintDialog') as mock_dialog_class:
         mock_dialog = Mock()
         mock_dialog.show.return_value = PrintOptions(
-            action=PrintAction.SAVE_PS,
-            ps_filename="output.ps"
+            action=PrintAction.SAVE_PDF,
+            pdf_filename="output.pdf"
         )
         mock_dialog.pages = [["Page 1"], ["Page 2"]]
         mock_dialog_class.return_value = mock_dialog
@@ -140,17 +140,17 @@ def test_save_to_ps_flow():
         
         editor._handle_key_event(key_event)
         
-        # Should enter PS filename prompt mode
-        assert editor.prompt_mode == 'ps_filename'
-        assert editor.prompt_input == "output.ps"
+        # Should enter PDF filename prompt mode
+        assert editor.prompt_mode == 'pdf_filename'
+        assert editor.prompt_input == "output.pdf"
         assert hasattr(editor, '_pending_print_pages')
 
 
-def test_ps_filename_prompt_save():
+def test_pdf_filename_prompt_save():
     """Test entering a PS filename and saving."""
     editor = create_mock_editor()
-    editor.prompt_mode = 'ps_filename'
-    editor.prompt_input = "test.ps"
+    editor.prompt_mode = 'pdf_filename'
+    editor.prompt_input = "test.pdf"
     editor._pending_print_pages = [["Page 1"]]
     
     with patch('pagemark.editor.PrintOutput') as mock_output_class:
@@ -175,12 +175,12 @@ def test_ps_filename_prompt_save():
                 code=343
             )
             
-            editor._handle_ps_filename_prompt(key_event)
+            editor._handle_pdf_filename_prompt(key_event)
             
             # Verify save was called
             mock_output.save_to_file.assert_called_once_with(
                 [["Page 1"]],
-                "test.ps"
+                "test.pdf"
             )
             
             # Verify prompt cleared
@@ -189,11 +189,11 @@ def test_ps_filename_prompt_save():
         assert editor._pending_print_pages is None
 
 
-def test_ps_filename_prompt_cancel():
+def test_pdf_filename_prompt_cancel():
     """Test cancelling the PS filename prompt."""
     editor = create_mock_editor()
-    editor.prompt_mode = 'ps_filename'
-    editor.prompt_input = "test.ps"
+    editor.prompt_mode = 'pdf_filename'
+    editor.prompt_input = "test.pdf"
     editor._pending_print_pages = [["Page 1"]]
     
     # Simulate ESC key
@@ -204,7 +204,7 @@ def test_ps_filename_prompt_cancel():
         is_sequence=False
     )
     
-    editor._handle_ps_filename_prompt(key_event)
+    editor._handle_pdf_filename_prompt(key_event)
     
     # Verify prompt cancelled
     assert editor.prompt_mode is None
@@ -274,8 +274,8 @@ def test_print_error_handling():
 def test_ps_save_error_handling():
     """Test error handling during PS save."""
     editor = create_mock_editor()
-    editor.prompt_mode = 'ps_filename'
-    editor.prompt_input = "/invalid/path/test.ps"
+    editor.prompt_mode = 'pdf_filename'
+    editor.prompt_input = "/invalid/path/test.pdf"
     editor._pending_print_pages = [["Page 1"]]
     
     with patch('pagemark.editor.PrintOutput') as mock_output_class:
@@ -292,7 +292,7 @@ def test_ps_save_error_handling():
             code=343
         )
         
-        editor._handle_ps_filename_prompt(key_event)
+        editor._handle_pdf_filename_prompt(key_event)
         
         # Verify error message
         assert "Directory does not exist" in editor.status_message

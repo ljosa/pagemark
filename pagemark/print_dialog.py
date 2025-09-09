@@ -16,7 +16,7 @@ class PrintAction(Enum):
     """Actions that can be taken from the print dialog."""
     CANCEL = "cancel"
     PRINT = "print"
-    SAVE_PS = "save_ps"
+    SAVE_PDF = "save_pdf"
 
 
 class PrintOptions(NamedTuple):
@@ -24,7 +24,7 @@ class PrintOptions(NamedTuple):
     action: PrintAction
     printer_name: Optional[str] = None
     double_sided: bool = False
-    ps_filename: Optional[str] = None
+    pdf_filename: Optional[str] = None
 
 
 class PrintDialog:
@@ -55,11 +55,11 @@ class PrintDialog:
         # Create preview generator
         self.preview = PrintPreview(self.pages)
         
-        # Build output options list (printers + PS File)
+        # Build output options list (printers + PDF File)
         self.output_options = self._build_output_list()
         
     def _build_output_list(self) -> List[str]:
-        """Build list of output options (printers + PS File).
+        """Build list of output options (printers + PDF File).
         
         Returns:
             List of output option names.
@@ -70,12 +70,12 @@ class PrintDialog:
         printers = self.printer_manager.get_available_printers()
         options.extend(printers)
         
-        # Add PS File option
-        options.append("PS File")
+        # Add PDF File option
+        options.append("PDF File")
         
-        # If no printers available, ensure PS File is an option
+        # If no printers available, ensure PDF File is an option
         if not options:
-            options = ["PS File"]
+            options = ["PDF File"]
         
         # Try to select default printer
         default = self.printer_manager.get_default_printer()
@@ -256,7 +256,7 @@ class PrintDialog:
         y += 1
         
         # Double-sided option (only if printing to printer)
-        if self.selected_output < len(self.output_options) - 1:  # Not PS File
+        if self.selected_output < len(self.output_options) - 1:  # Not PDF File
             double_text = "YES" if self.double_sided else "NO"
             print(term.move(y, left) + f"[D]ouble-sided: {double_text}", end='')
             y += 2
@@ -283,11 +283,11 @@ class PrintDialog:
         """
         selected_option = self.output_options[self.selected_output]
         
-        if selected_option == "PS File":
-            # PS File output
+        if selected_option == "PDF File":
+            # PDF File output
             return PrintOptions(
-                action=PrintAction.SAVE_PS,
-                ps_filename="output.ps"  # Default, will be prompted later
+                action=PrintAction.SAVE_PDF,
+                pdf_filename="output.pdf"  # Default, will be prompted later
             )
         else:
             # Printer output

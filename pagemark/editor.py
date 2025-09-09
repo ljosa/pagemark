@@ -183,8 +183,8 @@ class Editor:
         elif self.prompt_mode == 'quit_confirm':
             status_override = " Save file? (y, n) "
             cursor_in_status = True
-        elif self.prompt_mode == 'ps_filename':
-            status_override = f" Save PS as: {self.prompt_input}"
+        elif self.prompt_mode == 'pdf_filename':
+            status_override = f" Save PDF as: {self.prompt_input}"
             cursor_in_status = True
         elif self.prompt_mode == 'isearch':
             not_found = ''
@@ -387,8 +387,8 @@ class Editor:
         elif self.prompt_mode == 'quit_confirm':
             self._handle_quit_confirm(key_event)
             return True
-        elif self.prompt_mode == 'ps_filename':
-            self._handle_ps_filename_prompt(key_event)
+        elif self.prompt_mode == 'pdf_filename':
+            self._handle_pdf_filename_prompt(key_event)
             return True
         elif self.prompt_mode == 'isearch':
             self._handle_isearch_prompt(key_event)
@@ -673,19 +673,19 @@ class Editor:
             if ord(char) >= 32:
                 self.prompt_input += char
 
-    def _handle_ps_filename_prompt(self, key_event):
-        """Handle keypress during PS filename prompt."""
+    def _handle_pdf_filename_prompt(self, key_event):
+        """Handle keypress during PDF filename prompt."""
         if (key_event.key_type == KeyType.SPECIAL and key_event.value == 'escape') or \
            (key_event.key_type == KeyType.CTRL and key_event.value == 'g'):  # ESC or Ctrl-G
             # Cancel prompt
             self.prompt_mode = None
             self.prompt_input = ""
             self._pending_print_pages = None
-            self.status_message = "PS save cancelled"
+            self.status_message = "PDF save cancelled"
         elif key_event.key_type == KeyType.SPECIAL and key_event.value == 'enter':
             # Save with entered filename
             if self.prompt_input and hasattr(self, '_pending_print_pages'):
-                self._save_to_ps(self._pending_print_pages, self.prompt_input)
+                self._save_to_pdf(self._pending_print_pages, self.prompt_input)
                 self._pending_print_pages = None
             self.prompt_mode = None
             self.prompt_input = ""
@@ -746,10 +746,10 @@ class Editor:
             page_runs = pf.get_page_runs()
             pages_for_print = pf.pages
             self._print_to_printer(pages_for_print, result.printer_name, result.double_sided, page_runs)
-        elif result.action == PrintAction.SAVE_PS:
-            # Save to PS file - prompt for filename
-            self.prompt_mode = 'ps_filename'
-            self.prompt_input = result.ps_filename
+        elif result.action == PrintAction.SAVE_PDF:
+            # Save to PDF file - prompt for filename
+            self.prompt_mode = 'pdf_filename'
+            self.prompt_input = result.pdf_filename
             # Store pages for later use
             self._pending_print_pages = dialog.pages
 
@@ -791,15 +791,15 @@ class Editor:
         else:
             self.status_message = f"✗ Print failed: {error}"
 
-    def _save_to_ps(self, pages, filename):
-        """Save pages to PostScript file.
+    def _save_to_pdf(self, pages, filename):
+        """Save pages to PDF file.
 
         Args:
             pages: Formatted pages to save.
-            filename: Output PS filename.
+            filename: Output PDF filename.
         """
         # Show progress message
-        self.status_message = f"Saving PS to {filename}..."
+        self.status_message = f"Saving PDF to {filename}..."
         self._draw()
 
         # Validate path first
@@ -829,6 +829,6 @@ class Editor:
             if message:  # If there's a message
                 self.status_message = f"✓ {message}"
             else:
-                self.status_message = f"✓ Successfully saved PS to {filename}"
+                self.status_message = f"✓ Successfully saved PDF to {filename}"
         else:
             self.status_message = f"✗ {message}"

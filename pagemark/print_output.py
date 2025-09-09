@@ -6,7 +6,7 @@ import os
 import shutil
 from typing import List, Optional
 
-from .postscript import PostScriptGenerator
+from .pdf_generator import PDFGenerator
 
 
 class PrintOutput:
@@ -15,7 +15,7 @@ class PrintOutput:
     def __init__(self):
         """Initialize print output handler."""
         self.lpr_available = shutil.which("lpr") is not None
-        self.ps_generator = PostScriptGenerator()
+        self.pdf_generator = PDFGenerator()
     
     def print_to_printer(self, pages: List[List[str]], printer: str, 
                         double_sided: bool = False) -> tuple[bool, str]:
@@ -36,17 +36,17 @@ class PrintOutput:
             return False, "No printer specified"
         
         try:
-            # Generate PostScript using our Python generator
+            # Generate PDF using our Python generator
             runs = getattr(self, 'page_runs', None)
-            postscript_content = self.ps_generator.generate_postscript(pages, runs)
+            pdf_content = self.pdf_generator.generate_pdf(pages, runs)
             
-            # Create temporary PostScript file
-            with tempfile.NamedTemporaryFile(mode='w', suffix='.ps', 
-                                           delete=False) as ps_file:
-                ps_filename = ps_file.name
-                ps_file.write(postscript_content)
+            # Create temporary PDF file
+            with tempfile.NamedTemporaryFile(mode='wb', suffix='.pdf', 
+                                           delete=False) as pdf_file:
+                pdf_filename = pdf_file.name
+                pdf_file.write(pdf_content)
             
-            # Build lpr command to print PostScript
+            # Build lpr command to print PDF
             cmd = ['lpr', '-P', printer]
             
             # Add double-sided option if requested
@@ -54,8 +54,8 @@ class PrintOutput:
                 # CUPS option for double-sided printing
                 cmd.extend(['-o', 'sides=two-sided-long-edge'])
             
-            # Add the PostScript file to print
-            cmd.append(ps_filename)
+            # Add the PDF file to print
+            cmd.append(pdf_filename)
             
             # Execute print command
             result = subprocess.run(
@@ -65,8 +65,8 @@ class PrintOutput:
                 timeout=10
             )
             
-            # Clean up PostScript file
-            os.unlink(ps_filename)
+            # Clean up PDF file
+            os.unlink(pdf_filename)
             
             if result.returncode != 0:
                 error_msg = result.stderr.strip() if result.stderr else "Print command failed"
@@ -75,37 +75,37 @@ class PrintOutput:
             return True, ""
             
         except subprocess.TimeoutExpired:
-            if 'ps_filename' in locals() and os.path.exists(ps_filename):
-                os.unlink(ps_filename)
+            if 'pdf_filename' in locals() and os.path.exists(pdf_filename):
+                os.unlink(pdf_filename)
             return False, "Print command timed out"
         except (OSError, subprocess.SubprocessError) as e:
             # Justification: ensure temp file cleanup and return a user-facing error
-            if 'ps_filename' in locals() and os.path.exists(ps_filename):
-                os.unlink(ps_filename)
+            if 'pdf_filename' in locals() and os.path.exists(pdf_filename):
+                os.unlink(pdf_filename)
             return False, f"Print error: {str(e)}"
     
     def save_to_file(self, pages: List[List[str]], filename: str) -> tuple[bool, str]:
-        """Generate PostScript file from pages.
+        """Generate PDF file from pages.
         
         Args:
             pages: List of pages from PrintFormatter (85x66 chars each).
-            filename: Output PostScript filename.
+            filename: Output PDF filename.
             
         Returns:
             Tuple of (success, error_message).
         """
-        # Ensure filename has .ps extension
-        if not filename.endswith('.ps'):
-            filename += '.ps'
+        # Ensure filename has .pdf extension
+        if not filename.endswith('.pdf'):
+            filename += '.pdf'
         
         try:
-            # Generate PostScript using our Python generator
+            # Generate PDF using our Python generator
             runs = getattr(self, 'page_runs', None)
-            postscript_content = self.ps_generator.generate_postscript(pages, runs)
+            pdf_content = self.pdf_generator.generate_pdf(pages, runs)
             
-            # Save as PostScript file
-            with open(filename, 'w') as f:
-                f.write(postscript_content)
+            # Save as PDF file
+            with open(filename, 'wb') as f:
+                f.write(pdf_content)
             
             return True, ""
             

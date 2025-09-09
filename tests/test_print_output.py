@@ -136,13 +136,13 @@ def test_print_to_printer_timeout():
                     assert "timed out" in error
 
 
-def test_save_to_ps_file():
-    """Test saving to PostScript file."""
+def test_save_to_pdf_file():
+    """Test saving to PDF file."""
     output = PrintOutput()
     pages = create_test_pages()
     
     with tempfile.TemporaryDirectory() as temp_dir:
-        output_file = os.path.join(temp_dir, "output.ps")
+        output_file = os.path.join(temp_dir, "output.pdf")
         
         success, error = output.save_to_file(pages, output_file)
         
@@ -150,15 +150,16 @@ def test_save_to_ps_file():
         assert error == ""
         assert os.path.exists(output_file)
         
-        # Check PostScript content
-        with open(output_file, 'r') as f:
+        # Check PDF content
+        with open(output_file, 'rb') as f:
             content = f.read()
-            assert "%!PS-Adobe" in content
-            assert "%%Pages: 2" in content
+            assert content.startswith(b'%PDF')
+            # PDF should contain page info
+            assert b'/Type /Page' in content
 
 
-def test_save_to_ps_adds_extension():
-    """Test that .ps extension is added if missing."""
+def test_save_to_pdf_adds_extension():
+    """Test that .pdf extension is added if missing."""
     output = PrintOutput()
     pages = create_test_pages()
     
@@ -170,8 +171,8 @@ def test_save_to_ps_adds_extension():
         
         assert success == True
         assert error == ""
-        # Should have added .ps extension
-        assert os.path.exists(output_file + ".ps")
+        # Should have added .pdf extension
+        assert os.path.exists(output_file + ".pdf")
 
 
 
@@ -181,7 +182,7 @@ def test_validate_output_path_valid():
     output = PrintOutput()
     
     with tempfile.TemporaryDirectory() as temp_dir:
-        valid_path = os.path.join(temp_dir, "output.ps")
+        valid_path = os.path.join(temp_dir, "output.pdf")
         
         is_valid, error = output.validate_output_path(valid_path)
         
@@ -193,7 +194,7 @@ def test_validate_output_path_nonexistent_directory():
     """Test validating path with non-existent directory."""
     output = PrintOutput()
     
-    invalid_path = "/nonexistent/directory/output.ps"
+    invalid_path = "/nonexistent/directory/output.pdf"
     
     is_valid, error = output.validate_output_path(invalid_path)
     
@@ -209,7 +210,7 @@ def test_validate_output_path_readonly_directory():
         # Make directory read-only
         os.chmod(temp_dir, 0o444)
         
-        readonly_path = os.path.join(temp_dir, "output.ps")
+        readonly_path = os.path.join(temp_dir, "output.pdf")
         
         is_valid, error = output.validate_output_path(readonly_path)
         
@@ -225,7 +226,7 @@ def test_validate_output_path_readonly_file():
     output = PrintOutput()
     
     with tempfile.TemporaryDirectory() as temp_dir:
-        file_path = os.path.join(temp_dir, "readonly.ps")
+        file_path = os.path.join(temp_dir, "readonly.pdf")
         
         # Create read-only file
         with open(file_path, 'w') as f:
@@ -241,13 +242,13 @@ def test_validate_output_path_readonly_file():
         assert "not writable" in error
 
 
-def test_save_to_ps_with_extension():
-    """Test saving with explicit .ps extension."""
+def test_save_to_pdf_with_extension():
+    """Test saving with explicit .pdf extension."""
     output = PrintOutput()
     pages = create_test_pages()
     
     with tempfile.TemporaryDirectory() as temp_dir:
-        output_file = os.path.join(temp_dir, "output.ps")
+        output_file = os.path.join(temp_dir, "output.pdf")
         
         success, error = output.save_to_file(pages, output_file)
         

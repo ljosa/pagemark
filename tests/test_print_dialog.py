@@ -51,8 +51,8 @@ def test_dialog_initialization():
         assert dialog.terminal == terminal
         assert dialog.current_page == 0
         assert dialog.double_sided == True
-        assert len(dialog.output_options) == 3  # 2 printers + PS File
-        assert "PS File" in dialog.output_options
+        assert len(dialog.output_options) == 3  # 2 printers + PDF File
+        assert "PDF File" in dialog.output_options
 
 
 def test_output_list_building_with_printers():
@@ -66,7 +66,7 @@ def test_output_list_building_with_printers():
         
         dialog = PrintDialog(model, terminal)
         
-        assert dialog.output_options == ["HP_LaserJet", "Canon_PIXMA", "PS File"]
+        assert dialog.output_options == ["HP_LaserJet", "Canon_PIXMA", "PDF File"]
         assert dialog.selected_output == 1  # Canon_PIXMA is default
 
 
@@ -81,7 +81,7 @@ def test_output_list_building_no_printers():
         
         dialog = PrintDialog(model, terminal)
         
-        assert dialog.output_options == ["PS File"]
+        assert dialog.output_options == ["PDF File"]
         assert dialog.selected_output == 0
 
 
@@ -152,8 +152,8 @@ def test_save_to_ps():
         dialog.selected_output = 1  # Select PS File (second option)
         result = dialog.show()
         
-        assert result.action == PrintAction.SAVE_PS
-        assert result.ps_filename == "output.ps"
+        assert result.action == PrintAction.SAVE_PDF
+        assert result.pdf_filename == "output.pdf"
         assert result.printer_name is None
 
 
