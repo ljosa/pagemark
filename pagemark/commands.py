@@ -165,11 +165,25 @@ class InsertNewlineCommand(EditCommand):
         editor.model.insert_text('\n')
 
 
+class TabCommand(EditCommand):
+    def _edit(self, editor, key_event):
+        # Get current visual column position
+        visual_col = editor.view.visual_cursor_x
+        # Calculate spaces to next tab stop (multiple of 5)
+        next_stop = ((visual_col // 5) + 1) * 5
+        spaces_to_insert = next_stop - visual_col
+        # Delete any selection first
+        if editor.model.selection_start is not None:
+            editor.model.delete_selection()
+        # Insert the spaces
+        editor.model.insert_text(' ' * spaces_to_insert)
+
+
 class InsertTextCommand(EditCommand):
     def _edit(self, editor, key_event):
         char = key_event.value
-        # Filter out control characters
-        if ord(char[0]) >= 32 or char == '\t':
+        # Filter out control characters (but not tab, which is handled separately)
+        if ord(char[0]) >= 32:
             # Delete any selection first
             if editor.model.selection_start is not None:
                 editor.model.delete_selection()
@@ -442,6 +456,10 @@ class CommandRegistry:
         
         if command:
             return command.execute(editor, key_event)
+        
+        # Handle Tab specially
+        if key_event.key_type == KeyType.REGULAR and key_event.value == '\t':
+            return TabCommand().execute(editor, key_event)
         
         # Handle regular text input
         if key_event.key_type == KeyType.REGULAR:

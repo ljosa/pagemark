@@ -6,6 +6,7 @@ Pagemark is a keyboard‑driven word processor for the terminal.
 ## Features:
  - Word wrapping in paragraphs.
  - Fixed max 65-character line length, as was standard in the typewriter days.
+ - Tab key advances to 5-column stops (typewriter standard)
  - Prints in postscript format to CUPS printers (standard on Mac and Linux)
  - Bold and underline
  - Print preview
