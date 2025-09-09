@@ -8,6 +8,8 @@ dependencies = [
     "blessed>=1.21.0",
     "curtsies @ git+https://github.com/ljosa/curtsies@bug-shift-right-python-3-9",
     "reportlab>=4.0.0",
+    "pyperclip>=1.8.2",
+    "pyobjc-framework-Cocoa>=11.0; sys_platform == 'darwin'",
 ]
 
 [project.scripts]

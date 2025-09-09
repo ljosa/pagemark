@@ -1,7 +1,8 @@
 """Test selection functionality."""
 
 import unittest
-from unittest.mock import Mock, MagicMock
+from unittest.mock import Mock, MagicMock, patch
+import pyperclip
 from pagemark.model import TextModel, CursorPosition
 from pagemark.keyboard import KeyboardHandler, KeyEvent, KeyType
 
@@ -67,7 +68,7 @@ class TestSelection(unittest.TestCase):
         self.assertEqual(selected, "fox\njumps")
         
     def test_copy_selection(self):
-        """Test copying selected text."""
+        """Test copying selected text to system clipboard."""
         # Select "quick"
         self.model.cursor_position = CursorPosition(0, 4)
         self.model.start_selection()
@@ -76,13 +77,14 @@ class TestSelection(unittest.TestCase):
         
         result = self.model.copy_selection()
         self.assertTrue(result)
-        self.assertEqual(self.model.clipboard, "quick")
+        # Check system clipboard
+        self.assertEqual(pyperclip.paste(), "quick")
         
         # Selection should remain
         self.assertIsNotNone(self.model.selection_start)
         
     def test_cut_selection(self):
-        """Test cutting selected text."""
+        """Test cutting selected text to system clipboard."""
         # Select "quick"
         self.model.cursor_position = CursorPosition(0, 4)
         self.model.start_selection()
@@ -91,20 +93,33 @@ class TestSelection(unittest.TestCase):
         
         result = self.model.cut_selection()
         self.assertTrue(result)
-        self.assertEqual(self.model.clipboard, "quick")
+        # Check system clipboard
+        self.assertEqual(pyperclip.paste(), "quick")
         self.assertEqual(self.model.paragraphs[0], "The  brown fox")
         
         # Selection should be cleared
         self.assertIsNone(self.model.selection_start)
         
     def test_paste(self):
-        """Test pasting text."""
-        self.model.clipboard = "fast"
+        """Test pasting text from system clipboard."""
+        pyperclip.copy("fast")
         self.model.cursor_position = CursorPosition(0, 4)
         
         self.model.paste()
         self.assertEqual(self.model.paragraphs[0], "The fastquick brown fox")
         self.assertEqual(self.model.cursor_position.character_index, 8)
+    
+    def test_paste_plain_text_only(self):
+        """Test pasting plain text from system clipboard."""
+        # Currently only plain text is supported
+        pyperclip.copy("fast")
+        self.model.cursor_position = CursorPosition(0, 4)
+        
+        self.model.paste()
+        # Text should be inserted properly
+        self.assertEqual(self.model.paragraphs[0], "The fastquick brown fox")
+        # No styles are preserved from clipboard (plain text only)
+        self.assertEqual(self.model.styles[0][4:8], [0, 0, 0, 0])  # "fast" is plain
         
     def test_delete_selection(self):
         """Test deleting selected text."""

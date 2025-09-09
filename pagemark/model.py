@@ -2,6 +2,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from enum import IntFlag
 from typing import Optional, List
+from .clipboard import ClipboardManager
 
 # Type alias for style masks
 StyleMask = List[int]
@@ -78,7 +79,6 @@ class TextModel:
         self.cursor_position = CursorPosition()
         self.selection_start: Optional[CursorPosition] = None  # CursorPosition when selection started
         self.selection_end: Optional[CursorPosition] = None    # Current end of selection
-        self.clipboard = ""          # Internal clipboard for cut/copy/paste
         # Styling: per-paragraph parallel mask arrays with bit flags
         self.STYLE_BOLD = StyleFlags.BOLD  # Keep for backward compatibility
         self.STYLE_UNDER = StyleFlags.UNDERLINE  # Keep for backward compatibility
@@ -993,6 +993,40 @@ class TextModel:
                 result.append(para)
         return '\n'.join(result)
     
+    def _get_selected_styles(self):
+        """Get styles for the currently selected text.
+        
+        Returns:
+            List of style masks for each paragraph in the selection
+        """
+        if self.selection_start is None or self.selection_end is None:
+            return None
+        
+        # Ensure start comes before end
+        start = self.selection_start
+        end = self.selection_end
+        if (start.paragraph_index > end.paragraph_index or 
+            (start.paragraph_index == end.paragraph_index and 
+             start.character_index > end.character_index)):
+            start, end = end, start
+        
+        # Single paragraph selection
+        if start.paragraph_index == end.paragraph_index:
+            style_mask = self.styles[start.paragraph_index]
+            return [style_mask[start.character_index:end.character_index]]
+        
+        # Multi-paragraph selection
+        result = []
+        for i in range(start.paragraph_index, end.paragraph_index + 1):
+            style_mask = self.styles[i]
+            if i == start.paragraph_index:
+                result.append(style_mask[start.character_index:])
+            elif i == end.paragraph_index:
+                result.append(style_mask[:end.character_index])
+            else:
+                result.append(style_mask[:])
+        return result
+    
     def delete_selection(self):
         """Delete the currently selected text."""
         if self.selection_start is None or self.selection_end is None:
@@ -1042,10 +1076,12 @@ class TextModel:
         self.view.render()
     
     def copy_selection(self):
-        """Copy selected text to clipboard."""
+        """Copy selected text to system clipboard."""
         selected = self.get_selected_text()
         if selected:
-            self.clipboard = selected
+            # Get styles for selected text
+            styles = self._get_selected_styles() if self.selection_start else None
+            ClipboardManager.copy_text(selected, styles)
             return True
         return False
     
@@ -1057,23 +1093,19 @@ class TextModel:
         return False
     
     def paste(self):
-        """Paste clipboard at cursor position, replacing any selection."""
+        """Paste from system clipboard at cursor position, replacing any selection."""
         if self.selection_start is not None:
             self.delete_selection()
-        if self.clipboard:
+        
+        # Get content from system clipboard
+        text, styles = ClipboardManager.paste_text()
+        if text:
             # If styled clipboard present, insert with styles
-            flat = getattr(self, 'clipboard_styles', None)
-            if flat is not None:
-                text = self.clipboard
+            if styles is not None:
                 parts = text.split('\n')
-                parts_styles: list[list[int]] = []
-                idx = 0
-                for part in parts:
-                    parts_styles.append(flat[idx: idx+len(part)])
-                    idx += len(part)
-                self._insert_text_with_styles(parts, parts_styles)
+                self._insert_text_with_styles(parts, styles)
             else:
-                self.insert_text(self.clipboard)
+                self.insert_text(text)
     
     def kill_line(self):
         """Delete from cursor to end of visual line (Emacs-style Ctrl-K)."""
