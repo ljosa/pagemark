@@ -272,6 +272,12 @@ class TerminalTextView(TextView):
         # First paragraph
         para = self.model.paragraphs[paragraph_index]
         para_lines, para_counts = render_paragraph(para, self.num_columns)
+        
+        # Clamp first_paragraph_line_offset to valid range
+        # This handles cases where the paragraph has shrunk after deletion
+        if self.first_paragraph_line_offset >= len(para_lines):
+            self.first_paragraph_line_offset = max(0, len(para_lines) - 1)
+        
         if self.first_paragraph_line_offset == 0:
             start_position = CursorPosition(paragraph_index, 0)
         else:
@@ -305,7 +311,12 @@ class TerminalTextView(TextView):
                 page_num = self._calculate_page_number(doc_line)
                 self.lines.append(self._create_page_break_line(page_num))
         
-        end_position = CursorPosition(paragraph_index, para_counts[self.first_paragraph_line_offset + lines_wanted - 1] + 1)
+        # Set end_position only if we have lines to display
+        if lines_wanted > 0:
+            end_position = CursorPosition(paragraph_index, para_counts[self.first_paragraph_line_offset + lines_wanted - 1] + 1)
+        else:
+            # If no lines from this paragraph, set end to start
+            end_position = start_position
         
         # Track total document lines processed
         doc_lines_added = lines_wanted
