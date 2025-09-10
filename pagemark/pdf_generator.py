@@ -3,8 +3,6 @@
 from typing import List
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import letter
-from reportlab.pdfbase import pdfmetrics
-from reportlab.pdfbase.ttfonts import TTFont
 
 
 class PDFGenerator:
@@ -27,6 +25,10 @@ class PDFGenerator:
         self.font_size = 12
         self.line_height = 12  # 72/6 = 12 points per line
         
+        # Track unprintable characters for warning
+        self.unprintable_chars = set()
+        self.has_unprintable = False
+        
     def generate_pdf(self, pages: List[List[str]], page_styles: list[list[object]] | None = None) -> bytes:
         """Generate PDF from formatted pages.
 
@@ -37,6 +39,9 @@ class PDFGenerator:
         Returns:
             Complete PDF document as bytes.
         """
+        # Reset unprintable tracking for this generation
+        self.unprintable_chars = set()
+        self.has_unprintable = False
         import io
         pdf_buffer = io.BytesIO()
         
@@ -133,26 +138,56 @@ class PDFGenerator:
         return pdf_buffer.read()
     
     def _make_pdf_safe(self, text: str) -> str:
-        """Convert text to be safe for PDF output.
+        """Convert text to be safe for PDF output with Courier font.
         
-        ReportLab handles most encoding automatically, but we need to
-        handle any characters that might cause issues.
+        The built-in Courier font supports Windows-1252 encoding which
+        includes Latin-1 plus additional characters in the 0x80-0x9F range.
+        
+        Characters not in Windows-1252 are replaced with '?' and tracked
+        for warning messages.
         
         Args:
             text: Text to make safe.
             
         Returns:
-            Text safe for PDF.
+            Text safe for PDF output.
         """
-        # ReportLab handles Latin-1 well, but replace any chars outside that range
         result = []
         for char in text:
             try:
-                # Test if character can be encoded in Latin-1
-                char.encode('latin-1')
+                # Test if character can be encoded in Windows-1252
+                char.encode('cp1252')
                 result.append(char)
             except UnicodeEncodeError:
-                # Replace with question mark if can't encode
+                # Track unprintable character for warning
+                self.unprintable_chars.add(char)
+                self.has_unprintable = True
+                # Replace with question mark
                 result.append('?')
-        
         return ''.join(result)
+    
+    def get_unprintable_warning(self) -> str | None:
+        """Get warning message about unprintable characters.
+        
+        Returns:
+            Warning message if unprintable chars were found, None otherwise.
+        """
+        if not self.has_unprintable:
+            return None
+        
+        # Create a sorted list of unique unprintable characters for display
+        char_list = sorted(self.unprintable_chars)
+        
+        # Format characters for display (show unicode code point for non-displayable)
+        formatted_chars = []
+        for char in char_list[:10]:  # Limit to first 10 for readability
+            if ord(char) < 32 or ord(char) == 127:  # Control characters
+                formatted_chars.append(f"U+{ord(char):04X}")
+            else:
+                formatted_chars.append(f"'{char}' (U+{ord(char):04X})")
+        
+        if len(char_list) > 10:
+            formatted_chars.append(f"... and {len(char_list) - 10} more")
+        
+        return (f"Warning: {len(self.unprintable_chars)} unique unprintable character(s) "
+                f"were replaced with '?' in the PDF output: {', '.join(formatted_chars)}")
