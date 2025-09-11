@@ -18,6 +18,8 @@ from .keyboard import KeyboardHandler, KeyEvent, KeyType
 from .constants import EditorConstants
 from .commands import CommandRegistry
 from .undo import UndoManager, ModelSnapshot, UndoEntry
+from .session import get_session, SessionKeys
+from .font_config import get_font_config
 
 
 class Editor:
@@ -28,11 +30,16 @@ class Editor:
         self.terminal = TerminalInterface()
         self.keyboard = KeyboardHandler(self.terminal)
         self.view = TerminalTextView()
+        # Session manager
+        self.session = get_session()
+        
         # Session settings
-        self.spacing_double: bool = False  # SINGLE by default
+        self.spacing_double = self.session.get(SessionKeys.DOUBLE_SPACING, False)
         self.view.set_double_spacing(self.spacing_double)
-        # Fixed width for the view from constants
-        self.VIEW_WIDTH = EditorConstants.DOCUMENT_WIDTH
+        
+        # Line length from session or default
+        # This is the text area width (65 for 10-pitch, 72 for 12-pitch)
+        self.VIEW_WIDTH = self.session.get(SessionKeys.LINE_LENGTH, EditorConstants.DOCUMENT_WIDTH)
         # Initialize view dimensions early
         self.view.num_rows = self.terminal.height
         self.view.num_columns = self.VIEW_WIDTH
@@ -685,8 +692,13 @@ class Editor:
         elif key_event.key_type == KeyType.SPECIAL and key_event.value == 'enter':
             # Save with entered filename
             if self.prompt_input and hasattr(self, '_pending_print_pages'):
-                self._save_to_pdf(self._pending_print_pages, self.prompt_input)
+                font_name = getattr(self, '_pending_print_font', 'Courier')
+                page_runs = getattr(self, '_pending_print_page_runs', None)
+                self._save_to_pdf(self._pending_print_pages, self.prompt_input, font_name, page_runs)
                 self._pending_print_pages = None
+                self._pending_print_font = None
+                if hasattr(self, '_pending_print_page_runs'):
+                    self._pending_print_page_runs = None
             self.prompt_mode = None
             self.prompt_input = ""
         elif key_event.key_type == KeyType.SPECIAL and key_event.value == 'backspace':
@@ -741,21 +753,51 @@ class Editor:
             self.status_message = "Print cancelled"
         elif result.action == PrintAction.PRINT:
             # Print to printer
-            pf = PrintFormatter(self.model.paragraphs, double_spacing=dialog.double_spacing, styles=getattr(self.model, 'styles', None))
+            font_config = dialog.get_font_config()
+            pf = PrintFormatter(
+                self.model.paragraphs, 
+                double_spacing=dialog.double_spacing, 
+                styles=getattr(self.model, 'styles', None),
+                font_config=font_config
+            )
             pf.format_pages()
             page_runs = pf.get_page_runs()
             pages_for_print = pf.pages
-            self._print_to_printer(pages_for_print, result.printer_name, result.double_sided, page_runs)
+            self._print_to_printer(pages_for_print, result.printer_name, result.double_sided, page_runs, result.font_name)
         elif result.action == PrintAction.SAVE_PDF:
             # Save to PDF file - prompt for filename
             self.prompt_mode = 'pdf_filename'
             self.prompt_input = result.pdf_filename
-            # Store pages for later use
-            self._pending_print_pages = dialog.pages
+            # Store pages and font for later use
+            # Re-format with correct font configuration
+            font_config = dialog.get_font_config()
+            pf = PrintFormatter(
+                self.model.paragraphs, 
+                double_spacing=dialog.double_spacing, 
+                styles=getattr(self.model, 'styles', None),
+                font_config=font_config
+            )
+            pf.format_pages()
+            self._pending_print_pages = pf.pages
+            self._pending_print_font = result.font_name
+            self._pending_print_page_runs = pf.get_page_runs()
 
         # Persist spacing choice in session and update view
         self.spacing_double = dialog.double_spacing
         self.view.set_double_spacing(self.spacing_double)
+        self.session.set(SessionKeys.DOUBLE_SPACING, self.spacing_double)
+        
+        # Persist line length in session and update view if changed
+        line_length = dialog.get_line_length()
+        self.session.set(SessionKeys.LINE_LENGTH, line_length)
+        
+        # Update view width if changed
+        if line_length != self.VIEW_WIDTH:
+            self.VIEW_WIDTH = line_length
+            self.view.num_columns = self.VIEW_WIDTH
+            # Force model to recalculate visual positions
+            if hasattr(self.model, 'notify_cursor_moved'):
+                self.model.notify_cursor_moved()
 
         # Force full-screen redraw after returning from dialog
         # The dialog draws outside the editor's managed frame, so invalidate
@@ -764,20 +806,28 @@ class Editor:
         if hasattr(self, '_rendered_once'):
             delattr(self, '_rendered_once')
 
-    def _print_to_printer(self, pages, printer_name, double_sided, page_runs=None):
+    def _print_to_printer(self, pages, printer_name, double_sided, page_runs=None, font_name="Courier"):
         """Submit print job to printer.
 
         Args:
             pages: Formatted pages to print.
             printer_name: Name of the printer.
             double_sided: Whether to print double-sided.
+            page_runs: Optional style runs for the pages.
+            font_name: Font to use for PDF generation.
         """
         # Show progress message
         self.status_message = f"Printing to {printer_name}..."
         self._draw()
 
         # Perform the print operation
-        output = PrintOutput()
+        try:
+            output = PrintOutput(font_name)
+        except Exception as e:
+            # Use the specific error message
+            self.status_message = f"✗ Font error: {e}"
+            return
+            
         # Set runs on output if there are any styled runs
         if page_runs:
             # Check if there are any non-empty run lines
@@ -791,39 +841,40 @@ class Editor:
         else:
             self.status_message = f"✗ Print failed: {error}"
 
-    def _save_to_pdf(self, pages, filename):
+    def _save_to_pdf(self, pages, filename, font_name="Courier", page_runs=None):
         """Save pages to PDF file.
 
         Args:
             pages: Formatted pages to save.
             filename: Output PDF filename.
+            font_name: Font to use for PDF generation.
+            page_runs: Optional style runs for the pages.
         """
         # Show progress message
         self.status_message = f"Saving PDF to {filename}..."
         self._draw()
 
         # Validate path first
-        output = PrintOutput()
+        try:
+            output = PrintOutput(font_name)
+        except Exception as e:
+            # Use the specific error message
+            self.status_message = f"✗ Font error: {e}"
+            return
         valid, error = output.validate_output_path(filename)
         if not valid:
             self.status_message = f"✗ {error}"
             return
 
-        # Perform the save operation
-        pf = PrintFormatter(self.model.paragraphs, double_spacing=self.spacing_double, styles=getattr(self.model, 'styles', None))
-        pf.format_pages()
-        runs = pf.get_page_runs()
-        
         # Set runs on output if there are any styled runs
-        if runs:
+        if page_runs:
             # Check if there are any non-empty run lines
-            has_styled_content = any(any(line_runs for line_runs in page if line_runs) for page in runs)
+            has_styled_content = any(any(line_runs for line_runs in page if line_runs) for page in page_runs)
             if has_styled_content:
-                output.page_runs = runs
+                output.page_runs = page_runs
         
-        # Use the pages from the formatter
-        pages_for_save = pf.pages
-        success, message = output.save_to_file(pages_for_save, filename)
+        # Use the provided pages (already formatted with correct line length)
+        success, message = output.save_to_file(pages, filename)
 
         if success:
             if message:  # If there's a message

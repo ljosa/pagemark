@@ -45,25 +45,27 @@ class PrintPreview:
         0b1111: FULL
     }
     
-    def __init__(self, pages: List[List[str]]):
+    def __init__(self, pages: List[List[str]], page_width: int = 85):
         """Initialize preview with formatted pages.
         
         Args:
-            pages: List of pages from PrintFormatter, each page is 85x66 chars.
+            pages: List of pages from PrintFormatter.
+            page_width: Width of pages in characters (85 for standard, 102 for 12-pitch with wider margins).
         """
         self.pages = pages
+        self.page_width = page_width
     
     def generate_preview(self, page_num: int) -> List[str]:
         """Generate quarter block preview of a page.
         
-        Maps an 85x66 page to a 43x33 terminal display where each terminal
+        Maps a page to a terminal display where each terminal
         character represents a 2x2 area of the document using quadrant blocks.
         
         Args:
             page_num: The page number to preview (0-indexed).
             
         Returns:
-            List of 33 strings, each 43 characters wide, representing the preview.
+            List of 33 strings representing the preview.
         """
         if page_num >= len(self.pages):
             return []
@@ -71,13 +73,16 @@ class PrintPreview:
         page = self.pages[page_num]
         preview_lines = []
         
+        # Calculate preview width based on page width
+        # Round up to ensure we capture all characters
+        preview_width = (self.page_width + 1) // 2
+        
         # Process page in 2x2 blocks
         for row in range(0, 66, 2):  # 33 preview rows
             preview_line = []
             
-            for col in range(0, 86, 2):  # 43 preview columns (86/2 = 43)
+            for col in range(0, self.page_width + 1, 2):  # Ensure we cover full width
                 # Get the 2x2 block of characters
-                # Handle edge case where we might go past 85 chars
                 top_left = self._get_char(page, row, col)
                 top_right = self._get_char(page, row, col + 1)
                 bottom_left = self._get_char(page, row + 1, col)
@@ -89,7 +94,13 @@ class PrintPreview:
                 )
                 preview_line.append(quadrant)
             
-            preview_lines.append("".join(preview_line))
+            # Ensure consistent width
+            line = "".join(preview_line)
+            if len(line) < preview_width:
+                line += " " * (preview_width - len(line))
+            elif len(line) > preview_width:
+                line = line[:preview_width]
+            preview_lines.append(line)
         
         return preview_lines
     
@@ -149,11 +160,14 @@ class PrintPreview:
         if not preview:
             return []
         
+        # Calculate preview width
+        preview_width = (self.page_width + 1) // 2
+        
         # Add border
         bordered = []
-        bordered.append("┌" + "─" * 43 + "┐")
+        bordered.append("┌" + "─" * preview_width + "┐")
         for line in preview:
             bordered.append("│" + line + "│")
-        bordered.append("└" + "─" * 43 + "┘")
+        bordered.append("└" + "─" * preview_width + "┘")
         
         return bordered

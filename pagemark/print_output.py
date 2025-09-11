@@ -12,10 +12,14 @@ from .pdf_generator import PDFGenerator
 class PrintOutput:
     """Handles printing to printers and generating PDF files."""
     
-    def __init__(self):
-        """Initialize print output handler."""
+    def __init__(self, font_name: str = "Courier"):
+        """Initialize print output handler.
+        
+        Args:
+            font_name: Name of font to use for PDF generation.
+        """
         self.lpr_available = shutil.which("lpr") is not None
-        self.pdf_generator = PDFGenerator()
+        self.pdf_generator = PDFGenerator(font_name)
     
     def print_to_printer(self, pages: List[List[str]], printer: str, 
                         double_sided: bool = False) -> tuple[bool, str]:

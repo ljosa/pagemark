@@ -1,15 +1,36 @@
-"""Generate PDF directly in Python for printing."""
+"""Generate PDF directly in Python for printing.
 
-from typing import List
+This module provides PDF generation functionality for typewriter-style documents,
+supporting both built-in PDF fonts (Courier) and custom TrueType fonts
+(Prestige Elite Std) with proper embedding and character encoding.
+"""
+
+import os
+from typing import List, Optional
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import letter
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
+from reportlab.pdfbase.pdfmetrics import registerFont, Font, EmbeddedType1Face
+from .font_config import get_font_config
+
+
+class FontLoadError(Exception):
+    """Exception raised when a font cannot be loaded."""
 
 
 class PDFGenerator:
     """Generate PDF files for printing text documents."""
     
-    def __init__(self):
-        """Initialize PDF generator."""
+    def __init__(self, font_name: str = "Courier"):
+        """Initialize PDF generator.
+        
+        Args:
+            font_name: Name of font to use ("Courier" or "Prestige Elite Std").
+            
+        Raises:
+            FontLoadError: If the specified font cannot be loaded.
+        """
         # Page dimensions for US Letter (8.5 x 11 inches)
         self.page_width = 612  # 8.5 * 72
         self.page_height = 792  # 11 * 72
@@ -20,14 +41,107 @@ class PDFGenerator:
         # PostScript: "0 11 1 6 div sub inch moveto" = 11*72 - 72/6 = 792 - 12 = 780
         self.starting_y = 780  # 11 inches - 1/6 inch from bottom
         
-        # Font settings to match PostScript
-        # 12 point Courier for 6 lpi (lines per inch)
-        self.font_size = 12
-        self.line_height = 12  # 72/6 = 12 points per line
+        # Configure font based on selection
+        self._configure_font(font_name)
         
         # Track unprintable characters for warning
         self.unprintable_chars = set()
         self.has_unprintable = False
+    
+    def _configure_font(self, font_name: str) -> None:
+        """Configure font settings based on font name.
+        
+        Args:
+            font_name: Name of font to use.
+            
+        Raises:
+            FontLoadError: If the font cannot be configured.
+        """
+        config = get_font_config(font_name)
+        
+        if font_name == "Courier":
+            # Built-in Courier font
+            if config:
+                self.font_name = config.pdf_name
+                self.font_name_bold = config.pdf_bold_name
+                self.font_size = config.point_size
+                self.line_height = config.line_height
+                self.font_embedded = config.is_embedded
+            else:
+                # Fallback (should never happen as Courier is always configured)
+                self.font_name = "Courier"
+                self.font_name_bold = "Courier-Bold"
+                self.font_size = 12
+                self.line_height = 12
+                self.font_embedded = False
+                
+        elif font_name == "Prestige Elite Std":
+            # Prestige Elite, must be loaded from TTF
+            self._register_prestige_elite()
+            
+        else:
+            # Unknown font
+            raise FontLoadError(f"Unknown font: {font_name}")
+    
+    def _register_prestige_elite(self) -> None:
+        """Register Prestige Elite Std font if not already registered.
+        
+        Raises:
+            FontLoadError: If the font files cannot be found or loaded.
+        """
+        config = get_font_config("Prestige Elite Std")
+        if not config:
+            raise FontLoadError("No configuration found for Prestige Elite Std")
+        
+        # Set font configuration
+        self.font_name = config.pdf_name
+        self.font_name_bold = config.pdf_bold_name
+        self.font_size = config.point_size
+        self.line_height = config.line_height
+        self.font_embedded = config.is_embedded
+        
+        if "PrestigeEliteStd" in pdfmetrics.getRegisteredFontNames():
+            return
+        
+        # Search for Prestige Elite font files (TTF only)
+        regular_paths = [
+            os.path.expanduser("~/Library/Fonts/PrestigeEliteStd.ttf"),
+            "/Library/Fonts/PrestigeEliteStd.ttf",
+            "/System/Library/Fonts/Supplemental/PrestigeEliteStd.ttf",
+        ]
+        
+        bold_paths = [
+            os.path.expanduser("~/Library/Fonts/PrestigeEliteStd-Bd.ttf"),
+            "/Library/Fonts/PrestigeEliteStd-Bd.ttf",
+            "/System/Library/Fonts/Supplemental/PrestigeEliteStd-Bd.ttf",
+        ]
+        
+        regular_font_path = None
+        bold_font_path = None
+        
+        for path in regular_paths:
+            if os.path.exists(path):
+                regular_font_path = path
+                break
+        
+        for path in bold_paths:
+            if os.path.exists(path):
+                bold_font_path = path
+                break
+        
+        if not regular_font_path:
+            raise FontLoadError("Prestige Elite Std font file not found in system fonts")
+        
+        try:
+            pdfmetrics.registerFont(TTFont("PrestigeEliteStd", regular_font_path))
+            if bold_font_path:
+                pdfmetrics.registerFont(TTFont("PrestigeEliteStd-Bold", bold_font_path))
+            else:
+                # Use regular for bold if bold not found
+                self.font_name_bold = "PrestigeEliteStd"
+            # Success - font registered
+        except Exception as e:
+            raise FontLoadError(f"Could not register Prestige Elite Std font: {e}")
         
     def generate_pdf(self, pages: List[List[str]], page_styles: list[list[object]] | None = None) -> bytes:
         """Generate PDF from formatted pages.
@@ -63,7 +177,7 @@ class PDFGenerator:
                 
                 if not runs:
                     # Simple unstyled line
-                    c.setFont("Courier", self.font_size)
+                    c.setFont(self.font_name, self.font_size)
                     # Convert line to handle encoding
                     safe_line = self._make_pdf_safe(line)
                     c.drawString(self.left_margin, y_position, safe_line)
@@ -74,10 +188,10 @@ class PDFGenerator:
                     x_position = self.left_margin
                     current_col = 0
                     
-                    # Calculate character width for Courier at this size
-                    # Courier is monospace, all chars same width
-                    c.setFont("Courier", self.font_size)
-                    char_width = c.stringWidth("X", "Courier", self.font_size)
+                    # Calculate character width for the font at this size
+                    # All configured fonts are monospace, all chars same width
+                    c.setFont(self.font_name, self.font_size)
+                    char_width = c.stringWidth("X", self.font_name, self.font_size)
                     
                     # Ensure runs are sorted by start position
                     runs_sorted = sorted(runs, key=lambda r: r[0])
@@ -90,7 +204,7 @@ class PDFGenerator:
                         if start_x > current_col:
                             gap_text = line[current_col:start_x]
                             if gap_text:
-                                c.setFont("Courier", self.font_size)
+                                c.setFont(self.font_name, self.font_size)
                                 safe_gap = self._make_pdf_safe(gap_text)
                                 c.drawString(x_position, y_position, safe_gap)
                                 x_position += len(gap_text) * char_width
@@ -98,9 +212,9 @@ class PDFGenerator:
                         
                         # Set font for styled segment
                         if bold:
-                            c.setFont("Courier-Bold", self.font_size)
+                            c.setFont(self.font_name_bold, self.font_size)
                         else:
-                            c.setFont("Courier", self.font_size)
+                            c.setFont(self.font_name, self.font_size)
                         
                         # Draw the styled text
                         safe_seg = self._make_pdf_safe(seg_text)
@@ -120,7 +234,7 @@ class PDFGenerator:
                     if current_col < len(line):
                         tail_text = line[current_col:]
                         if tail_text:
-                            c.setFont("Courier", self.font_size)
+                            c.setFont(self.font_name, self.font_size)
                             safe_tail = self._make_pdf_safe(tail_text)
                             c.drawString(x_position, y_position, safe_tail)
                     
