@@ -310,6 +310,8 @@ class TerminalTextView(TextView):
             if self._should_add_page_break(doc_line) and has_more_content and len(self.lines) < self.num_rows:
                 page_num = self._calculate_page_number(doc_line)
                 self.lines.append(self._create_page_break_line(page_num))
+                # Add empty style array for page break line to keep indices aligned
+                self.line_styles.append([0] * self.num_columns)
         
         # Set end_position only if we have lines to display
         if lines_wanted > 0:
@@ -348,6 +350,8 @@ class TerminalTextView(TextView):
                 if self._should_add_page_break(doc_line) and has_more_content and len(self.lines) < self.num_rows:
                     page_num = self._calculate_page_number(doc_line)
                     self.lines.append(self._create_page_break_line(page_num))
+                    # Add empty style array for page break line to keep indices aligned
+                    self.line_styles.append([0] * self.num_columns)
         
         self.end_paragraph_index = paragraph_index + 1
 
