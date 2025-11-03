@@ -228,8 +228,8 @@ class TerminalTextView(TextView):
                     line_start_char = 0
                 else:
                     line_start_char = para_counts[current_line_offset - 1]
-                
-                if current_line_offset < len(para_counts) - 1:
+
+                if current_line_offset < len(para_counts):
                     line_end_char = para_counts[current_line_offset]
                 else:
                     line_end_char = len(para)
