@@ -357,9 +357,14 @@ class TerminalTextView(TextView):
 
         # If the cursor is outside the view, center the view on the cursor
         if self.model.cursor_position < start_position or self.model.cursor_position >= end_position:
-            self.center_view_on_cursor()
-            # Re-render after centering (recursive call)
-            self.render()
+            if not getattr(self, '_rendering', False):
+                self._rendering = True
+                try:
+                    self.center_view_on_cursor()
+                    # Re-render after centering (recursive call)
+                    self.render()
+                finally:
+                    self._rendering = False
             return
 
         self._set_visual_cursor_position()
@@ -452,12 +457,12 @@ class TerminalTextView(TextView):
     def center_view_on_cursor(self):
         _, para_counts = render_paragraph(self.model.paragraphs[self.model.cursor_position.paragraph_index], self.num_columns)
         line_index = self._find_line_index(para_counts, self.model.cursor_position.character_index)
-        
-        # Account for page breaks when centering
-        cursor_doc_line = self._get_document_line_number(self.model.cursor_position.paragraph_index, line_index)
-        page_breaks_before = cursor_doc_line // self._effective_lines_per_page()
-        
-        half_rows = (self.num_rows - page_breaks_before) // 2  # Adjust for page breaks
+
+        # Center with half the screen above the cursor
+        # Note: We don't subtract total page breaks from document start, as that's
+        # irrelevant - only page breaks within the view matter, and those will be
+        # handled naturally by the render loop
+        half_rows = self.num_rows // 2
         self.first_paragraph_line_offset = line_index - half_rows  # Could be negative
         
         self.start_paragraph_index = self.model.cursor_position.paragraph_index
