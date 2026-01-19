@@ -22,7 +22,13 @@ class EditorConstants:
     
     # Resize handling
     RESIZE_PIPE_MARKER = b'R'  # Byte written to pipe to signal resize
-    
+
+    # Autosave
+    AUTOSAVE_DEBOUNCE_SECONDS = 10    # Save 10s after last edit
+    AUTOSAVE_BACKSTOP_SECONDS = 300   # Max 5 minutes between saves
+    AUTOSAVE_SWAP_PREFIX = "."
+    AUTOSAVE_SWAP_SUFFIX = ".swp"
+
     # Status messages
     TERMINAL_TOO_NARROW_MESSAGE = "Terminal too narrow! Need at least {} columns."
     CURRENT_WIDTH_MESSAGE = "Current width: {} columns."

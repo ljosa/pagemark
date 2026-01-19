@@ -7,6 +7,7 @@ import signal
 import termios
 import tempfile
 import errno
+import time
 from typing import Optional
 from .terminal import TerminalInterface
 from .model import TextModel
@@ -20,6 +21,7 @@ from .commands import CommandRegistry
 from .undo import UndoManager, ModelSnapshot, UndoEntry
 from .session import get_session, SessionKeys
 from .font_config import get_font_config
+from .autosave import write_swap_file, delete_swap_file
 
 
 class Editor:
@@ -61,6 +63,9 @@ class Editor:
         # Incremental search state
         self._isearch_origin = None  # tuple[int,int] of original cursor
         self._isearch_last_match = None  # tuple[int,int] of last match start
+        # Autosave state
+        self._last_edit_time: float | None = None
+        self._last_autosave_time: float | None = None
 
     def _handle_resize(self, signum, frame):
         """Handle terminal resize signal."""
@@ -75,6 +80,62 @@ class Editor:
         self._ctrl_c_pressed = True
         # Write to pipe to wake up select()
         os.write(self._resize_pipe_w, b'C')
+
+    def _calculate_autosave_timeout(self) -> float | None:
+        """Calculate timeout for select() based on autosave timing.
+
+        Returns:
+            Timeout in seconds for select(), or None if no timeout needed.
+        """
+        # No autosave needed if document isn't modified or has no filename
+        if not self.modified or not self.filename:
+            return None
+
+        now = time.monotonic()
+
+        # Debounce: wait until 10s after last edit
+        if self._last_edit_time is not None:
+            debounce_remaining = (
+                self._last_edit_time + EditorConstants.AUTOSAVE_DEBOUNCE_SECONDS
+            ) - now
+            if debounce_remaining > 0:
+                return debounce_remaining
+
+        # Backstop: if we've never autosaved, or 5 min since last autosave
+        if self._last_autosave_time is not None:
+            backstop_remaining = (
+                self._last_autosave_time + EditorConstants.AUTOSAVE_BACKSTOP_SECONDS
+            ) - now
+            if backstop_remaining > 0:
+                return backstop_remaining
+
+        # Time to save - small timeout to trigger save soon
+        return 0.1
+
+    def _maybe_autosave(self) -> None:
+        """Perform autosave if conditions are met."""
+        # No autosave if document isn't modified or has no filename
+        if not self.modified or not self.filename:
+            return
+
+        now = time.monotonic()
+
+        # Check debounce condition: 10s since last edit
+        debounce_met = (
+            self._last_edit_time is not None
+            and now - self._last_edit_time >= EditorConstants.AUTOSAVE_DEBOUNCE_SECONDS
+        )
+
+        # Check backstop condition: 5 min since last autosave (or never autosaved)
+        backstop_met = (
+            self._last_autosave_time is None
+            or now - self._last_autosave_time >= EditorConstants.AUTOSAVE_BACKSTOP_SECONDS
+        )
+
+        if debounce_met or backstop_met:
+            content = self.model.to_overstrike_text()
+            if write_swap_file(self.filename, content):
+                self._last_autosave_time = now
 
     def run(self):
         """Run the main editor loop."""
@@ -130,11 +191,18 @@ class Editor:
 
                         need_draw = False
 
+                    # Calculate select timeout based on autosave timing
+                    timeout = self._calculate_autosave_timeout()
+
                     # Wait for input on stdin or resize pipe
                     # Use file descriptor 0 for stdin to work in all environments
-                    ready, _, _ = select.select([0, self._resize_pipe_r], [], [])
+                    ready, _, _ = select.select([0, self._resize_pipe_r], [], [], timeout)
 
-                    if self._resize_pipe_r in ready:
+                    if not ready:
+                        # Timeout - check autosave
+                        self._maybe_autosave()
+                        # No UI change needed from autosave
+                    elif self._resize_pipe_r in ready:
                         # Clear the pipe (resize wake)
                         os.read(self._resize_pipe_r, 1024)
                         if self.running:
@@ -147,8 +215,11 @@ class Editor:
                         key_event = self.keyboard.get_key_event(timeout=0)
                         if key_event:
                             # Process key and schedule a draw; diff'ing will minimize output
-                            self._handle_key_event(key_event)
+                            was_modified = self._handle_key_event(key_event)
                             need_draw = True
+                            # Track edit time for autosave debounce
+                            if was_modified:
+                                self._last_edit_time = time.monotonic()
 
                 # Restore terminal settings before exiting cbreak
                 if old_settings:
@@ -348,16 +419,19 @@ class Editor:
         # Invalidate terminal frame since help drew directly to screen
         self.terminal.invalidate_frame()
 
-    def _handle_key_event(self, key_event: KeyEvent) -> None:
+    def _handle_key_event(self, key_event: KeyEvent) -> bool:
         """Handle a keyboard event and update model/view state.
 
         Editor always schedules a draw after handling; terminal diffing ensures
         minimal updates are written to the screen.
+
+        Returns:
+            True if the document was modified by this key event.
         """
         # If help is visible, any key dismisses it
         if self.help_visible:
             self.hide_help()
-            return
+            return False
 
         # Clear status message on any keypress (except in prompt mode)
         if self.status_message and not self.prompt_mode:
@@ -365,22 +439,22 @@ class Editor:
 
         # Handle prompt modes first
         if self._handle_prompt_mode(key_event):
-            return
+            return False
 
         # Don't process other keys if in error mode
         if self.error_mode:
-            return
+            return False
 
         # Handle ESC key by itself
         if key_event.key_type == KeyType.SPECIAL and key_event.value == 'escape':
             # Just ESC - could be used for canceling operations
-            return
+            return False
 
         # Execute command
         was_modified = self.command_registry.execute(self, key_event)
         if was_modified:
             self.modified = True
-        return
+        return was_modified
 
     def _handle_prompt_mode(self, key_event: KeyEvent) -> bool:
         """Handle input in prompt mode.
@@ -569,6 +643,20 @@ class Editor:
             print(f"Error loading file: {e}")
             sys.exit(1)
 
+    def load_from_content(self, filename: str, content: str):
+        """Load content directly into the editor (for recovery).
+
+        Args:
+            filename: Path to associate with this document
+            content: Content to load (typically from swap file)
+        """
+        self.filename = filename
+        # Parse as overstrike to support styled documents; plain text is handled too
+        self.model = TextModel.from_overstrike_text(self.view, content)
+        self.view.render()
+        # Mark as modified since content came from swap, not the actual file
+        self.modified = True
+
     def save_file(self, filename: str):
         """Save the current document to a file atomically.
 
@@ -606,6 +694,9 @@ class Editor:
 
             self.filename = filename
             self.modified = False
+            # Clean up swap file after successful save
+            delete_swap_file(filename)
+            self._last_autosave_time = None
             return True
 
         except PermissionError:

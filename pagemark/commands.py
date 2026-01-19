@@ -3,6 +3,7 @@
 from abc import ABC, abstractmethod
 from typing import Dict, Tuple, Optional, TYPE_CHECKING
 from .keyboard import KeyType
+from .autosave import delete_swap_file
 
 if TYPE_CHECKING:
     from .editor import Editor
@@ -209,6 +210,9 @@ class QuitCommand(SystemCommand):
         if editor.modified:
             editor.prompt_mode = 'quit_confirm'
         else:
+            # Clean exit with no unsaved changes - delete swap file
+            if editor.filename:
+                delete_swap_file(editor.filename)
             editor.running = False
 
 

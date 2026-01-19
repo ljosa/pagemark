@@ -7,10 +7,13 @@ from pagemark.editor import Editor
 from pagemark.print_dialog import PrintAction, PrintOptions
 from pagemark.terminal import TerminalInterface
 from pagemark.keyboard import KeyEvent, KeyType
+from pagemark.session import get_session
 
 
 def create_mock_editor():
     """Create a mock editor for testing."""
+    # Clear session to avoid test pollution from Mock values
+    get_session().clear()
     editor = Editor()
     
     # Mock the terminal
@@ -119,31 +122,41 @@ def test_print_to_printer_flow():
 def test_save_to_ps_flow():
     """Test the flow of saving to PS file."""
     editor = create_mock_editor()
-    
+
     # Mock the print components
     with patch('pagemark.editor.PrintDialog') as mock_dialog_class:
-        mock_dialog = Mock()
-        mock_dialog.show.return_value = PrintOptions(
-            action=PrintAction.SAVE_PDF,
-            pdf_filename="output.pdf"
-        )
-        mock_dialog.pages = [["Page 1"], ["Page 2"]]
-        mock_dialog_class.return_value = mock_dialog
-        
-        # Simulate Ctrl-P
-        key_event = KeyEvent(
-            key_type=KeyType.CTRL,
-            value='p',
-            raw='\x10',
-            is_ctrl=True
-        )
-        
-        editor._handle_key_event(key_event)
-        
-        # Should enter PDF filename prompt mode
-        assert editor.prompt_mode == 'pdf_filename'
-        assert editor.prompt_input == "output.pdf"
-        assert hasattr(editor, '_pending_print_pages')
+        with patch('pagemark.editor.PrintFormatter') as mock_formatter_class:
+            mock_dialog = Mock()
+            mock_dialog.show.return_value = PrintOptions(
+                action=PrintAction.SAVE_PDF,
+                pdf_filename="output.pdf"
+            )
+            mock_dialog.pages = [["Page 1"], ["Page 2"]]
+            mock_dialog.double_spacing = False
+            mock_dialog.get_font_config.return_value = Mock(text_width=65)
+            mock_dialog.get_line_length.return_value = 65
+            mock_dialog_class.return_value = mock_dialog
+
+            # Mock PrintFormatter to avoid Mock text_width issues
+            mock_formatter = Mock()
+            mock_formatter.pages = [["Page 1"], ["Page 2"]]
+            mock_formatter.get_page_runs.return_value = []
+            mock_formatter_class.return_value = mock_formatter
+
+            # Simulate Ctrl-P
+            key_event = KeyEvent(
+                key_type=KeyType.CTRL,
+                value='p',
+                raw='\x10',
+                is_ctrl=True
+            )
+
+            editor._handle_key_event(key_event)
+
+            # Should enter PDF filename prompt mode
+            assert editor.prompt_mode == 'pdf_filename'
+            assert editor.prompt_input == "output.pdf"
+            assert hasattr(editor, '_pending_print_pages')
 
 
 def test_pdf_filename_prompt_save():
@@ -240,35 +253,45 @@ def test_print_cancel():
 def test_print_error_handling():
     """Test error handling during printing."""
     editor = create_mock_editor()
-    
+
     with patch('pagemark.editor.PrintDialog') as mock_dialog_class:
         with patch('pagemark.editor.PrintOutput') as mock_output_class:
-            mock_dialog = Mock()
-            mock_dialog.show.return_value = PrintOptions(
-                action=PrintAction.PRINT,
-                printer_name="BadPrinter",
-                double_sided=False
-            )
-            mock_dialog.pages = [["Page 1"]]
-            mock_dialog_class.return_value = mock_dialog
-            
-            mock_output = Mock()
-            mock_output.print_to_printer.return_value = (False, "Printer not found")
-            mock_output_class.return_value = mock_output
-            
-            # Simulate Ctrl-P
-            key_event = KeyEvent(
-                key_type=KeyType.CTRL,
-                value='p',
-                raw='\x10',
-                is_ctrl=True
-            )
-            
-            editor._handle_key_event(key_event)
-            
-            # Verify error message
-            assert "Print failed" in editor.status_message
-            assert "Printer not found" in editor.status_message
+            with patch('pagemark.editor.PrintFormatter') as mock_formatter_class:
+                mock_dialog = Mock()
+                mock_dialog.show.return_value = PrintOptions(
+                    action=PrintAction.PRINT,
+                    printer_name="BadPrinter",
+                    double_sided=False
+                )
+                mock_dialog.pages = [["Page 1"]]
+                mock_dialog.double_spacing = False
+                mock_dialog.get_font_config.return_value = Mock(text_width=65)
+                mock_dialog.get_line_length.return_value = 65
+                mock_dialog_class.return_value = mock_dialog
+
+                # Mock PrintFormatter
+                mock_formatter = Mock()
+                mock_formatter.pages = [["Page 1"]]
+                mock_formatter.get_page_runs.return_value = []
+                mock_formatter_class.return_value = mock_formatter
+
+                mock_output = Mock()
+                mock_output.print_to_printer.return_value = (False, "Printer not found")
+                mock_output_class.return_value = mock_output
+
+                # Simulate Ctrl-P
+                key_event = KeyEvent(
+                    key_type=KeyType.CTRL,
+                    value='p',
+                    raw='\x10',
+                    is_ctrl=True
+                )
+
+                editor._handle_key_event(key_event)
+
+                # Verify error message
+                assert "Print failed" in editor.status_message
+                assert "Printer not found" in editor.status_message
 
 
 def test_ps_save_error_handling():

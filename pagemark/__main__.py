@@ -7,13 +7,63 @@ defined in `pyproject.toml`.
 from __future__ import annotations
 
 import sys
+from typing import Optional
 from .version import get_version_string
+from .autosave import swap_file_exists, read_swap_file, delete_swap_file, get_swap_path
 
 
 def _escape_bytes(s: str) -> str:
     """Return a printable representation of raw key string."""
     # Represent control/escape characters visibly
     return s.encode('unicode_escape').decode('ascii')
+
+
+def prompt_recovery(filename: str) -> Optional[str]:
+    """Prompt user about swap file recovery.
+
+    Args:
+        filename: Path to the original document file.
+
+    Returns:
+        Content from swap file if user chose to recover,
+        None if user chose to delete swap or abort,
+        or raises SystemExit if user chose to abort.
+    """
+    import os
+    swap_path = get_swap_path(filename)
+    swap_basename = os.path.basename(swap_path)
+
+    print(f"Swap file {swap_basename} found.")
+    print("This may contain unsaved changes from a previous session.")
+    print()
+    print("[R]ecover from swap file")
+    print("[D]elete swap file and open original")
+    print("[A]bort")
+    print()
+
+    while True:
+        try:
+            choice = input("Choice: ").strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            sys.exit(1)
+
+        if choice == 'r':
+            # Recover from swap file
+            content = read_swap_file(filename)
+            if content is None:
+                print("Error: Could not read swap file.")
+                sys.exit(1)
+            return content
+        elif choice == 'd':
+            # Delete swap file and open original
+            delete_swap_file(filename)
+            return None
+        elif choice == 'a':
+            # Abort
+            sys.exit(0)
+        else:
+            print("Please enter R, D, or A.")
 
 
 def run_keyboard_test() -> None:
@@ -105,11 +155,23 @@ def main() -> None:
         run_keyboard_test()
         return
 
+    filename = args[0] if args else None
+    recovered_content: Optional[str] = None
+
+    # Check for swap file recovery before entering editor
+    if filename and swap_file_exists(filename):
+        recovered_content = prompt_recovery(filename)
+
     # Lazy import to avoid importing UI deps for --version
     from .editor import Editor
     editor = Editor()
-    if args:
-        editor.load_file(args[0])
+    if filename:
+        if recovered_content is not None:
+            # Load recovered content from swap file
+            editor.load_from_content(filename, recovered_content)
+        else:
+            # Load normal file
+            editor.load_file(filename)
     editor.run()
 
 
