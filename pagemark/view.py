@@ -133,6 +133,31 @@ class TerminalTextView(TextView):
     lines: list[str] = []
     line_styles: list[list[int]] = []  # per-line style flags per column (bold/underline)
     visual_cursor_y: int = 0
+    
+    def _adjust_style_slice_for_hanging_indent(self, style_slice: list[int], 
+                                                is_wrapped_line: bool, 
+                                                paragraph: str) -> list[int]:
+        """Adjust style slice to account for hanging indent padding.
+        
+        When a bullet or numbered paragraph wraps to multiple lines, wrapped lines
+        have hanging indent spaces prepended. This method adds corresponding zero
+        style flags to the beginning of the style slice to align with the visual
+        line positions.
+        
+        Args:
+            style_slice: The style flags from the model for this line's content
+            is_wrapped_line: True if this is a wrapped line (not the first line)
+            paragraph: The paragraph text to check for hanging indent
+            
+        Returns:
+            Adjusted style slice with hanging indent padding if applicable
+        """
+        if is_wrapped_line:
+            hanging_width = _get_hanging_indent_width(paragraph)
+            if hanging_width > 0:
+                # Prepend padding for the hanging indent spaces
+                return [0] * hanging_width + style_slice
+        return style_slice
     visual_cursor_x: int = 0  # Store visual horizontal position
     desired_x: int = 0  # Desired X position for up/down navigation
     LINES_PER_PAGE: int = EditorConstants.LINES_PER_PAGE  # Base lines per printed page
@@ -304,11 +329,7 @@ class TerminalTextView(TextView):
             style_slice = st[start_ci:end_ci] if st else [0]*len(line_text)
             # Account for hanging indent padding on wrapped lines
             line_index = self.first_paragraph_line_offset + i
-            if line_index > 0:
-                hanging_width = _get_hanging_indent_width(para)
-                if hanging_width > 0:
-                    # Prepend padding for the hanging indent spaces
-                    style_slice = [0] * hanging_width + style_slice
+            style_slice = self._adjust_style_slice_for_hanging_indent(style_slice, line_index > 0, para)
             style_slice = (style_slice + [0]*max(0, len(line_text)-len(style_slice)))[:len(line_text)]
             self.line_styles.append(style_slice)
             # Check if there's more content after this line
@@ -348,11 +369,7 @@ class TerminalTextView(TextView):
                 end_ci = para_counts[i]
                 style_slice = st[start_ci:end_ci] if st else [0]*len(line_text)
                 # Account for hanging indent padding on wrapped lines
-                if i > 0:
-                    hanging_width = _get_hanging_indent_width(para)
-                    if hanging_width > 0:
-                        # Prepend padding for the hanging indent spaces
-                        style_slice = [0] * hanging_width + style_slice
+                style_slice = self._adjust_style_slice_for_hanging_indent(style_slice, i > 0, para)
                 style_slice = (style_slice + [0]*max(0, len(line_text)-len(style_slice)))[:len(line_text)]
                 self.line_styles.append(style_slice)
                 doc_lines_added += 1

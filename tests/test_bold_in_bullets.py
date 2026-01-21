@@ -138,7 +138,3 @@ def test_bold_on_first_line_of_bullet():
     assert first_line_styles[5] & StyleFlags.BOLD, "Position 5 should be bold"
     assert first_line_styles[14] & StyleFlags.BOLD, "Position 14 should be bold"
     assert not (first_line_styles[15] & StyleFlags.BOLD), "Position 15 should NOT be bold"
-
-
-if __name__ == '__main__':
-    pytest.main([__file__, '-v'])
