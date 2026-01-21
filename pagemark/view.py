@@ -133,6 +133,11 @@ class TerminalTextView(TextView):
     lines: list[str] = []
     line_styles: list[list[int]] = []  # per-line style flags per column (bold/underline)
     visual_cursor_y: int = 0
+    visual_cursor_x: int = 0  # Store visual horizontal position
+    desired_x: int = 0  # Desired X position for up/down navigation
+    LINES_PER_PAGE: int = EditorConstants.LINES_PER_PAGE  # Base lines per printed page
+    CONTEXT_LINES: int = 2  # Overlap context lines when paging
+    _double_spacing: bool = False
     
     def _adjust_style_slice_for_hanging_indent(self, style_slice: list[int], 
                                                 is_wrapped_line: bool, 
@@ -158,11 +163,6 @@ class TerminalTextView(TextView):
                 # Prepend padding for the hanging indent spaces
                 return [0] * hanging_width + style_slice
         return style_slice
-    visual_cursor_x: int = 0  # Store visual horizontal position
-    desired_x: int = 0  # Desired X position for up/down navigation
-    LINES_PER_PAGE: int = EditorConstants.LINES_PER_PAGE  # Base lines per printed page
-    CONTEXT_LINES: int = 2  # Overlap context lines when paging
-    _double_spacing: bool = False
 
     def set_double_spacing(self, enabled: bool) -> None:
         self._double_spacing = bool(enabled)
