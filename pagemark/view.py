@@ -302,6 +302,13 @@ class TerminalTextView(TextView):
             end_ci = para_counts[self.first_paragraph_line_offset + i]
             st = self.model.styles[paragraph_index] if hasattr(self.model, 'styles') else []
             style_slice = st[start_ci:end_ci] if st else [0]*len(line_text)
+            # Account for hanging indent padding on wrapped lines
+            line_index = self.first_paragraph_line_offset + i
+            if line_index > 0:
+                hanging_width = _get_hanging_indent_width(para)
+                if hanging_width > 0:
+                    # Prepend padding for the hanging indent spaces
+                    style_slice = [0] * hanging_width + style_slice
             style_slice = (style_slice + [0]*max(0, len(line_text)-len(style_slice)))[:len(line_text)]
             self.line_styles.append(style_slice)
             # Check if there's more content after this line
@@ -340,6 +347,12 @@ class TerminalTextView(TextView):
                 start_ci = 0 if i == 0 else para_counts[i-1]
                 end_ci = para_counts[i]
                 style_slice = st[start_ci:end_ci] if st else [0]*len(line_text)
+                # Account for hanging indent padding on wrapped lines
+                if i > 0:
+                    hanging_width = _get_hanging_indent_width(para)
+                    if hanging_width > 0:
+                        # Prepend padding for the hanging indent spaces
+                        style_slice = [0] * hanging_width + style_slice
                 style_slice = (style_slice + [0]*max(0, len(line_text)-len(style_slice)))[:len(line_text)]
                 self.line_styles.append(style_slice)
                 doc_lines_added += 1
