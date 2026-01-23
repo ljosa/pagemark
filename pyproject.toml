@@ -10,6 +10,7 @@ dependencies = [
     "reportlab>=4.0.0",
     "pyperclip>=1.8.2",
     "pyobjc-framework-Cocoa>=11.0; sys_platform == 'darwin'",
+    "platformdirs>=4.0.0",
 ]
 
 [project.scripts]

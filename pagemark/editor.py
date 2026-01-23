@@ -642,6 +642,9 @@ class Editor:
         except Exception as e:
             print(f"Error loading file: {e}")
             sys.exit(1)
+        
+        # Load persisted settings for this document
+        self.session.load_document_settings(self.filename)
 
     def load_from_content(self, filename: str, content: str):
         """Load content directly into the editor (for recovery).
@@ -656,6 +659,9 @@ class Editor:
         self.view.render()
         # Mark as modified since content came from swap, not the actual file
         self.modified = True
+        
+        # Load persisted settings for this document
+        self.session.load_document_settings(self.filename)
 
     def save_file(self, filename: str):
         """Save the current document to a file atomically.
@@ -786,6 +792,8 @@ class Editor:
                 font_name = getattr(self, '_pending_print_font', 'Courier')
                 page_runs = getattr(self, '_pending_print_page_runs', None)
                 self._save_to_pdf(self._pending_print_pages, self.prompt_input, font_name, page_runs)
+                # Save PDF filename to session
+                self.session.set(SessionKeys.PDF_FILENAME, self.prompt_input)
                 self._pending_print_pages = None
                 self._pending_print_font = None
                 if hasattr(self, '_pending_print_page_runs'):
@@ -858,7 +866,9 @@ class Editor:
         elif result.action == PrintAction.SAVE_PDF:
             # Save to PDF file - prompt for filename
             self.prompt_mode = 'pdf_filename'
-            self.prompt_input = result.pdf_filename
+            # Try to use saved PDF filename from session, otherwise use default
+            saved_pdf_filename = self.session.get(SessionKeys.PDF_FILENAME)
+            self.prompt_input = saved_pdf_filename if saved_pdf_filename else result.pdf_filename
             # Store pages and font for later use
             # Re-format with correct font configuration
             font_config = dialog.get_font_config()

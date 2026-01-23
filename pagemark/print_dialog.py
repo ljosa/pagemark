@@ -53,7 +53,9 @@ class PrintDialog:
         # Dialog state
         self.current_page = 0
         self.selected_output = 0  # Index in output options list
-        self.double_sided = True
+        
+        # Restore double-sided setting from session
+        self.double_sided = self.session.get(SessionKeys.DUPLEX_PRINTING, True)
         
         # Restore or initialize spacing
         self.double_spacing = self.session.get(SessionKeys.DOUBLE_SPACING, double_spacing)
@@ -110,10 +112,15 @@ class PrintDialog:
         if not options:
             options = ["PDF File"]
         
-        # Try to select default printer
-        default = self.printer_manager.get_default_printer()
-        if default and default in options:
-            self.selected_output = options.index(default)
+        # Try to restore saved printer/output from session
+        saved_printer = self.session.get(SessionKeys.PRINTER_NAME)
+        if saved_printer and saved_printer in options:
+            self.selected_output = options.index(saved_printer)
+        else:
+            # Try to select default printer
+            default = self.printer_manager.get_default_printer()
+            if default and default in options:
+                self.selected_output = options.index(default)
         
         return options
     
@@ -216,11 +223,16 @@ class PrintDialog:
                 # Cycle output: 'O'
                 if ev.key_type == KeyType.REGULAR and ev.value in ('o', 'O'):
                     self.selected_output = (self.selected_output + 1) % len(self.output_options)
+                    # Save selected output to session
+                    selected_option = self.output_options[self.selected_output]
+                    self.session.set(SessionKeys.PRINTER_NAME, selected_option)
                     continue
 
                 # Toggle double-sided: 'D'
                 if ev.key_type == KeyType.REGULAR and ev.value in ('d', 'D'):
                     self.double_sided = not self.double_sided
+                    # Save duplex setting to session
+                    self.session.set(SessionKeys.DUPLEX_PRINTING, self.double_sided)
                     continue
 
                 # Toggle spacing: 'S'

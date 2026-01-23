@@ -13,7 +13,11 @@ from pagemark.session import get_session
 def create_mock_editor():
     """Create a mock editor for testing."""
     # Clear session to avoid test pollution from Mock values
-    get_session().clear()
+    session = get_session()
+    session.clear()
+    # Disable persistence to avoid JSON serialization of Mock objects
+    session.set_persistence_enabled(False)
+    
     editor = Editor()
     
     # Mock the terminal
