@@ -58,7 +58,7 @@ class SettingsPersistence:
                 
             # Validate that it's a dict
             if not isinstance(data, dict):
-                logger.warning(f"Settings file has invalid format (not a dict), ignoring")
+                logger.warning("Settings file has invalid format (not a dict), ignoring")
                 self._settings_cache = {}
                 return self._settings_cache
             

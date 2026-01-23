@@ -3,6 +3,7 @@
 import unittest
 import tempfile
 import os
+import shutil
 from pathlib import Path
 
 from pagemark.settings_persistence import SettingsPersistence, get_persistence
@@ -29,7 +30,6 @@ class TestSettingsPersistence(unittest.TestCase):
     def tearDown(self):
         """Clean up test fixtures."""
         # Clean up temp directory
-        import shutil
         if os.path.exists(self.temp_dir):
             shutil.rmtree(self.temp_dir)
     
@@ -221,7 +221,6 @@ class TestSessionPersistenceIntegration(unittest.TestCase):
         self.session.set_persistence_enabled(True)
         
         # Clean up temp directory
-        import shutil
         if os.path.exists(self.temp_dir):
             shutil.rmtree(self.temp_dir)
     
