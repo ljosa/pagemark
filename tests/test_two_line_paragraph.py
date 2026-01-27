@@ -107,12 +107,82 @@ def test_render_two_line_with_trailing_spaces():
     # Should wrap into at least 2 lines
     assert len(v.lines) >= 2
 
-    # All lines should respect column width
+    # Lines should respect column width, with up to +1 for double-space margin extension
     for line in v.lines:
-        assert len(line) <= v.num_columns
+        assert len(line) <= v.num_columns + 1
 
     # Cursor at start
     assert m.cursor_position.paragraph_index == 0
     assert m.cursor_position.character_index == 0
     assert v.visual_cursor_x == 0
     assert v.visual_cursor_y == 0
+
+
+def test_double_space_margin_extension():
+    """Test that double-spaces are kept together by extending into margin.
+
+    When two consecutive spaces would cause the second space to wrap to the
+    next line, both spaces should be kept on the current line by extending
+    it into the right margin (num_columns + 1).
+    """
+    v = TerminalTextView()
+    v.num_rows = 10
+    v.num_columns = 6  # Small width to easily trigger wrapping
+
+    # "Hello  world" - the double-space should stay together
+    # Without margin extension: "Hello " on line 1, " world" on line 2 (bad)
+    # With margin extension: "Hello  " on line 1 (7 chars), "world" on line 2 (good)
+    text = "Hello  world"
+    m = TextModel(v, paragraphs=[text])
+
+    v.render()
+
+    # Should render to 2 lines
+    assert len(v.lines) == 2
+
+    # First line should have both spaces (extended to 7 chars)
+    assert v.lines[0] == "Hello  "
+    assert len(v.lines[0]) == 7  # Extended into margin
+
+    # Second line should be just "world" without leading space
+    assert v.lines[1] == "world"
+
+
+def test_double_space_cursor_in_margin():
+    """Test cursor positioning when in the margin area of an extended line."""
+    v = TerminalTextView()
+    v.num_rows = 10
+    v.num_columns = 6
+
+    text = "Hello  world"
+    m = TextModel(v, paragraphs=[text])
+
+    # Move cursor to position 6 (the second space, in the margin)
+    m.cursor_position.character_index = 6
+    v.render()
+
+    # Cursor should be on line 0 at column 6 (in the margin)
+    assert v.visual_cursor_y == 0
+    assert v.visual_cursor_x == 6
+
+
+def test_triple_space_only_two_in_margin():
+    """Test that only two spaces extend into margin, third wraps.
+
+    For three or more consecutive spaces, only the first two stay together
+    via margin extension. The third space wraps to the next line.
+    """
+    v = TerminalTextView()
+    v.num_rows = 10
+    v.num_columns = 6
+
+    # "Hello   x" - triple space
+    text = "Hello   x"
+    m = TextModel(v, paragraphs=[text])
+
+    v.render()
+
+    # First line: "Hello  " (7 chars, two spaces in margin)
+    # Second line: starts with remaining content
+    assert v.lines[0] == "Hello  "
+    assert len(v.lines[0]) == 7

@@ -202,6 +202,10 @@ def render_paragraph(paragraph: str, num_columns: int) -> tuple[list[str], list[
     counts in the original paragraph at the end of each visual line. Visual
     indent spaces for wrapped bullet/numbered paragraphs are not counted in
     cumulative_counts.
+
+    Double-space handling: When two consecutive spaces would cause the second
+    space to wrap to the next line, both spaces are kept on the current line
+    by extending it into the right margin (up to num_columns + 1).
     """
     if not paragraph:
         return ([""], [0])
@@ -215,6 +219,7 @@ def render_paragraph(paragraph: str, num_columns: int) -> tuple[list[str], list[
     words = paragraph.split(" ")
     current_line: Optional[str] = None
     line_index = 0
+    skip_next_space = False  # Set when double-space extended into margin
 
     def available_width_for_line(idx: int) -> int:
         if idx == 0:
@@ -225,11 +230,18 @@ def render_paragraph(paragraph: str, num_columns: int) -> tuple[list[str], list[
         """Get the visual prefix for a line (hanging indent spaces for wrapped lines)."""
         return indent_prefix if (idx > 0 and hanging_width > 0) else ""
 
-    for word in words:
+    for i, word in enumerate(words):
         width = available_width_for_line(line_index)
+        is_empty_word = (len(word) == 0)
+        is_not_last_word = (i < len(words) - 1)
+
         if current_line is None:
             # First word on the line
-            if len(word) >= width:
+            if is_empty_word:
+                # Empty word at line start means a space should start this line
+                # (happens with 3+ consecutive spaces where third wraps)
+                current_line = ""
+            elif len(word) >= width:
                 # Break long word across as many lines as needed
                 while len(word) >= width:
                     lines.append(get_line_prefix(line_index) + word[:width])
@@ -241,14 +253,55 @@ def render_paragraph(paragraph: str, num_columns: int) -> tuple[list[str], list[
                 current_line = word
             else:
                 current_line = word
+        elif skip_next_space:
+            # Previous iteration added double-space into margin; don't add separator
+            skip_next_space = False
+            if is_empty_word:
+                # Third+ consecutive space - wrap it to new line
+                lines.append(get_line_prefix(line_index) + current_line)
+                char_count += len(current_line)
+                cumulative_counts.append(char_count)
+                line_index += 1
+                current_line = ""  # Start new line (space will be added by next iteration)
+            elif len(current_line) + len(word) <= width:
+                current_line += word
+            else:
+                # Word doesn't fit - commit current line and start new
+                lines.append(get_line_prefix(line_index) + current_line)
+                char_count += len(current_line)
+                cumulative_counts.append(char_count)
+                line_index += 1
+                width = available_width_for_line(line_index)
+                # Handle long word
+                if len(word) >= width:
+                    while len(word) >= width:
+                        lines.append(get_line_prefix(line_index) + word[:width])
+                        char_count += width
+                        cumulative_counts.append(char_count)
+                        word = word[width:]
+                        line_index += 1
+                        width = available_width_for_line(line_index)
+                    current_line = word
+                else:
+                    current_line = word
+        elif is_empty_word:
+            # Empty word = second space of consecutive spaces
+            # Only extend into margin when adding space EXACTLY fills the line
+            if len(current_line) + 1 == width and is_not_last_word:
+                # Extend into margin: add both spaces (keeps double-space together)
+                current_line += "  "
+                skip_next_space = True
+            else:
+                # Normal case - just add the separator space
+                current_line += " "
         else:
-            # Check if word fits on current line (plus a space)
+            # Normal word - check if it fits
             if len(current_line) + 1 + len(word) < width:
                 current_line += " " + word
             else:
                 # Commit current line
                 lines.append(get_line_prefix(line_index) + current_line)
-                char_count += len(current_line) + 1  # +1 for the space that would have been added
+                char_count += len(current_line) + 1  # +1 for the space before next word
                 cumulative_counts.append(char_count)
                 line_index += 1
                 width = available_width_for_line(line_index)
@@ -612,20 +665,21 @@ class TerminalTextView(TextView):
         # Calculate visual cursor X position (includes hanging indent offset)
         self.visual_cursor_x = mapper.visual_column(char_idx)
 
-        # Handle cursor at end of line that exactly fills width
-        if self.visual_cursor_x == self.num_columns:
+        # Handle cursor at end of line - wrap to next line only when:
+        # 1. Cursor is at or past the screen edge (num_columns), AND
+        # 2. Cursor is at or past the line content
+        # For extended lines (double-space in margin), cursor at num_columns stays on the line
+        actual_line_width = mapper.visual_line_width(line_index)
+        if self.visual_cursor_x >= self.num_columns and self.visual_cursor_x >= actual_line_width:
             # Cursor wraps to start of next line
             self.visual_cursor_y += 1
             # Skip page break if present
-            while (self.visual_cursor_y < len(self.lines) and 
+            while (self.visual_cursor_y < len(self.lines) and
                    self._is_page_break_line(self.lines[self.visual_cursor_y])):
                 self.visual_cursor_y += 1
             self.visual_cursor_x = 0
         elif self.visual_cursor_x < 0:
             self.visual_cursor_x = 0
-        elif self.visual_cursor_x > self.num_columns:
-            # This shouldn't happen with proper wrapping
-            self.visual_cursor_x = self.num_columns - 1
 
     def center_view_on_cursor(self):
         mapper = get_line_mapper(self.model.paragraphs[self.model.cursor_position.paragraph_index], self.num_columns)
