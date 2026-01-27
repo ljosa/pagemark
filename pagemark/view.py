@@ -1,4 +1,5 @@
 from typing import Optional
+from dataclasses import dataclass
 import re
 # Provide a no-op override decorator on Python < 3.12
 try:
@@ -8,6 +9,110 @@ except ImportError:  # pragma: no cover - compatibility shim
         return func
 from .model import TextView, CursorPosition
 from .constants import EditorConstants
+
+
+@dataclass
+class VisualLineMapper:
+    """Maps between character indices and visual line positions.
+
+    This class centralizes the logic for converting between:
+    - Character indices in the paragraph text
+    - Visual line indices (which wrapped line)
+    - Column positions within a visual line
+
+    The cumulative_counts array contains character counts at the END of each
+    visual line. So cumulative_counts[i] is the character index of the first
+    character of line i+1 (or paragraph length for the last line).
+
+    Key semantic: A character index that exactly equals cumulative_counts[i]
+    is considered to be at the START of line i+1, not at the END of line i.
+    """
+    lines: list[str]
+    cumulative_counts: list[int]
+    hanging_width: int = 0
+
+    @property
+    def line_count(self) -> int:
+        """Number of visual lines."""
+        return len(self.lines)
+
+    def line_start(self, line_index: int) -> int:
+        """Return the character index where a visual line starts."""
+        if line_index <= 0:
+            return 0
+        if line_index >= len(self.cumulative_counts):
+            return self.cumulative_counts[-1] if self.cumulative_counts else 0
+        return self.cumulative_counts[line_index - 1]
+
+    def line_end(self, line_index: int) -> int:
+        """Return the character index where a visual line ends (exclusive).
+
+        This is the index of the first character of the NEXT line,
+        or the paragraph length for the last line.
+        """
+        if line_index < 0:
+            return 0
+        if line_index >= len(self.cumulative_counts):
+            return self.cumulative_counts[-1] if self.cumulative_counts else 0
+        return self.cumulative_counts[line_index]
+
+    def line_for_char_index(self, char_index: int) -> int:
+        """Find which visual line contains a character index.
+
+        If char_index exactly equals a line boundary (cumulative_counts[i]),
+        it is considered to be at the START of the next line (i+1).
+        """
+        # Handle boundary case: exactly at a line end means start of next line
+        for i in range(len(self.cumulative_counts) - 1):
+            if char_index == self.cumulative_counts[i]:
+                return i + 1
+        # Normal case: find first line whose end is past char_index
+        for i, count in enumerate(self.cumulative_counts):
+            if char_index < count:
+                return i
+        return len(self.cumulative_counts) - 1
+
+    def char_to_line_and_column(self, char_index: int) -> tuple[int, int]:
+        """Convert a character index to (line_index, column).
+
+        The column is the position within the line's content (not counting
+        visual hanging indent padding).
+        """
+        line_index = self.line_for_char_index(char_index)
+        start = self.line_start(line_index)
+        column = char_index - start
+        return (line_index, column)
+
+    def line_and_column_to_char(self, line_index: int, column: int) -> int:
+        """Convert (line_index, column) to a character index.
+
+        The column should be the content position (not counting visual
+        hanging indent padding).
+        """
+        start = self.line_start(line_index)
+        return start + column
+
+    def visual_column(self, char_index: int) -> int:
+        """Get the visual column for a character index.
+
+        This accounts for hanging indent on wrapped lines.
+        """
+        line_index, column = self.char_to_line_and_column(char_index)
+        if line_index > 0 and self.hanging_width > 0:
+            return column + self.hanging_width
+        return column
+
+    def content_column_from_visual(self, line_index: int, visual_column: int) -> int:
+        """Convert a visual column to content column for a specific line.
+
+        Accounts for hanging indent on wrapped lines.
+        """
+        if line_index > 0 and self.hanging_width > 0:
+            # Clamp clicks in the indent area to the first content position
+            if visual_column <= self.hanging_width:
+                return 0
+            return visual_column - self.hanging_width
+        return visual_column
 
 def _get_hanging_indent_width(paragraph: str) -> int:
     """Return hanging indent width for bullet/numbered paragraphs.
@@ -124,6 +229,22 @@ def render_paragraph(paragraph: str, num_columns: int) -> tuple[list[str], list[
     cumulative_counts.append(char_count)
 
     return (lines, cumulative_counts)
+
+
+def get_line_mapper(paragraph: str, num_columns: int) -> VisualLineMapper:
+    """Create a VisualLineMapper for a paragraph.
+
+    This is the preferred way to work with visual line mappings.
+    It provides methods to convert between character indices and
+    line/column positions.
+    """
+    lines, cumulative_counts = render_paragraph(paragraph, num_columns)
+    hanging_width = _get_hanging_indent_width(paragraph)
+    return VisualLineMapper(
+        lines=lines,
+        cumulative_counts=cumulative_counts,
+        hanging_width=hanging_width
+    )
 
 
 class TerminalTextView(TextView):
@@ -408,66 +529,45 @@ class TerminalTextView(TextView):
     def _set_visual_cursor_position(self):
         # Set visual cursor position accounting for page break lines
         cursor_para_idx = self.model.cursor_position.paragraph_index
-        
+        char_idx = self.model.cursor_position.character_index
+
         # Get document line number at start of view
         doc_line_start = self._get_document_line_number(self.start_paragraph_index, self.first_paragraph_line_offset)
-        
+
         # Calculate the cursor's document line number
         cursor_doc_line = 0
         for i in range(cursor_para_idx):
             cursor_doc_line += self._get_paragraph_line_count(i)
-        
-        # Find which line within the cursor paragraph the cursor is on
-        _, para_counts = render_paragraph(self.model.paragraphs[cursor_para_idx], self.num_columns)
-        line_index = 0
-        char_idx = self.model.cursor_position.character_index
-        
-        # Special case: if cursor is exactly at a line boundary (para_counts value),
-        # it should be on the next line (start of next line, not end of current)
-        for i in range(len(para_counts) - 1):
-            if char_idx == para_counts[i]:
-                line_index = i + 1
-                break
-        else:
-            # Normal case: find which line contains this character
-            while (line_index < len(para_counts) and
-                   para_counts[line_index] < char_idx):
-                line_index += 1
-        
+
+        # Use VisualLineMapper to find line index and column
+        mapper = get_line_mapper(self.model.paragraphs[cursor_para_idx], self.num_columns)
+        line_index = mapper.line_for_char_index(char_idx)
+
         cursor_doc_line += line_index
-        
+
         # Calculate number of page breaks between start of view and cursor
         page_breaks_before = 0
         lpp = self._effective_lines_per_page()
         for line_num in range(doc_line_start, cursor_doc_line):
             if line_num > 0 and line_num % lpp == 0:
                 page_breaks_before += 1
-        
+
         # Calculate visual Y position
         self.visual_cursor_y = cursor_doc_line - doc_line_start + page_breaks_before
-        
+
         # Clamp to visible screen area
         if self.visual_cursor_y < 0:
             self.visual_cursor_y = 0
         elif self.visual_cursor_y >= len(self.lines):
             self.visual_cursor_y = len(self.lines) - 1
-        
+
         # Skip over page break lines
-        while (self.visual_cursor_y < len(self.lines) and 
+        while (self.visual_cursor_y < len(self.lines) and
                self._is_page_break_line(self.lines[self.visual_cursor_y])):
             self.visual_cursor_y += 1
-        
-        # Calculate visual cursor X position within the line
-        if line_index == 0:
-            self.visual_cursor_x = self.model.cursor_position.character_index
-        else:
-            # Calculate position within the current line
-            self.visual_cursor_x = self.model.cursor_position.character_index - para_counts[line_index - 1]
 
-        # Add hanging indent offset for wrapped lines of bullet/numbered paragraphs
-        hanging_width = _get_hanging_indent_width(self.model.paragraphs[cursor_para_idx])
-        if line_index > 0 and hanging_width > 0:
-            self.visual_cursor_x += hanging_width
+        # Calculate visual cursor X position (includes hanging indent offset)
+        self.visual_cursor_x = mapper.visual_column(char_idx)
 
         # Handle cursor at end of line that exactly fills width
         if self.visual_cursor_x == self.num_columns:
@@ -485,8 +585,8 @@ class TerminalTextView(TextView):
             self.visual_cursor_x = self.num_columns - 1
 
     def center_view_on_cursor(self):
-        _, para_counts = render_paragraph(self.model.paragraphs[self.model.cursor_position.paragraph_index], self.num_columns)
-        line_index = self._find_line_index(para_counts, self.model.cursor_position.character_index)
+        mapper = get_line_mapper(self.model.paragraphs[self.model.cursor_position.paragraph_index], self.num_columns)
+        line_index = mapper.line_for_char_index(self.model.cursor_position.character_index)
 
         # Center with half the screen above the cursor
         # Note: We don't subtract total page breaks from document start, as that's
@@ -494,21 +594,14 @@ class TerminalTextView(TextView):
         # handled naturally by the render loop
         half_rows = self.num_rows // 2
         self.first_paragraph_line_offset = line_index - half_rows  # Could be negative
-        
+
         self.start_paragraph_index = self.model.cursor_position.paragraph_index
         while self.first_paragraph_line_offset < 0 and self.start_paragraph_index > 0:
             self.start_paragraph_index -= 1
-            _, para_counts = render_paragraph(self.model.paragraphs[self.start_paragraph_index], self.num_columns)
-            self.first_paragraph_line_offset += len(para_counts)
+            prev_mapper = get_line_mapper(self.model.paragraphs[self.start_paragraph_index], self.num_columns)
+            self.first_paragraph_line_offset += prev_mapper.line_count
         if self.first_paragraph_line_offset < 0:
             self.first_paragraph_line_offset = 0
-
-    def _find_line_index(self, cumulative_counts: list[int], char_index: int) -> int:
-        """Find the line index in cumulative_counts that contains char_index."""
-        for i, count in enumerate(cumulative_counts):
-            if char_index < count:
-                return i
-        return len(cumulative_counts) - 1
     
     def move_cursor_up(self):
         """Move cursor up one visual line, maintaining desired X position."""
@@ -554,44 +647,32 @@ class TerminalTextView(TextView):
         doc_line = self._visual_y_to_document_line(visual_y)
         if doc_line is None:
             return
-        
+
         # Find which paragraph this line belongs to
         paragraph_index, line_within_para = self._document_line_to_paragraph(doc_line)
         if paragraph_index >= len(self.model.paragraphs):
             return
-        
-        # Get the rendered lines for this paragraph
-        para_lines, para_counts = render_paragraph(self.model.paragraphs[paragraph_index], self.num_columns)
-        
-        # Calculate character index for the desired X position on this line
-        if line_within_para >= len(para_lines):
+
+        # Use VisualLineMapper for coordinate conversion
+        mapper = get_line_mapper(self.model.paragraphs[paragraph_index], self.num_columns)
+
+        if line_within_para >= mapper.line_count:
             return
-        
-        line_text = para_lines[line_within_para]
-        # Adjust for hanging indent when mapping from visual X to character index
-        hanging_width = _get_hanging_indent_width(self.model.paragraphs[paragraph_index])
-        if line_within_para > 0 and hanging_width > 0:
-            if desired_x <= hanging_width:
-                actual_x = hanging_width  # snap clicks into indent to text start
-            else:
-                actual_x = min(desired_x, len(line_text))
-        else:
-            actual_x = min(desired_x, len(line_text))
-        
-        # Calculate character index in the paragraph
-        if line_within_para == 0:
-            char_index = actual_x
-        else:
-            # Subtract visual indent to get content X
-            content_x = actual_x - (hanging_width if (hanging_width > 0) else 0)
-            if content_x < 0:
-                content_x = 0
-            char_index = para_counts[line_within_para - 1] + content_x
-        
+
+        line_text = mapper.lines[line_within_para]
+        # Convert visual X to content column, clamped to line length
+        content_x = mapper.content_column_from_visual(line_within_para, desired_x)
+        # Get actual line content length (excluding hanging indent prefix)
+        line_content_len = len(line_text) - (mapper.hanging_width if line_within_para > 0 else 0)
+        content_x = min(content_x, line_content_len)
+
+        # Convert to character index
+        char_index = mapper.line_and_column_to_char(line_within_para, content_x)
+
         # Update cursor position
         self.model.cursor_position.paragraph_index = paragraph_index
         self.model.cursor_position.character_index = char_index
-        
+
         # Re-render to update visual cursor position
         self.render()
     
@@ -628,83 +709,65 @@ class TerminalTextView(TextView):
         doc_line = self._visual_y_to_document_line(0) - 1  # Line above current view
         if doc_line < 0:
             return
-        
+
         # Convert to paragraph and line within paragraph
         paragraph_index, line_within_para = self._document_line_to_paragraph(doc_line)
-        
-        # Get the rendered lines for this paragraph
-        para_lines, para_counts = render_paragraph(self.model.paragraphs[paragraph_index], self.num_columns)
-        
-        # Calculate character index for the desired X position on this line
-        if line_within_para >= len(para_lines):
+
+        # Use VisualLineMapper for coordinate conversion
+        mapper = get_line_mapper(self.model.paragraphs[paragraph_index], self.num_columns)
+
+        if line_within_para >= mapper.line_count:
             return
-        
-        line_text = para_lines[line_within_para]
-        hanging_width = _get_hanging_indent_width(self.model.paragraphs[paragraph_index])
-        if line_within_para > 0 and hanging_width > 0:
-            if self.desired_x <= hanging_width:
-                actual_x = hanging_width
-            else:
-                actual_x = min(self.desired_x, len(line_text))
-        else:
-            actual_x = min(self.desired_x, len(line_text))
-        
-        # Calculate character index in the paragraph
-        if line_within_para == 0:
-            char_index = actual_x
-        else:
-            content_x = actual_x - (hanging_width if (hanging_width > 0) else 0)
-            if content_x < 0:
-                content_x = 0
-            char_index = para_counts[line_within_para - 1] + content_x
-        
+
+        # Calculate character index using the mapper
+        char_index = self._char_index_for_desired_x(mapper, line_within_para)
+
         # Update cursor position
         self.model.cursor_position.paragraph_index = paragraph_index
         self.model.cursor_position.character_index = char_index
-        
+
         # Center view on the cursor
         self.center_view_on_cursor()
         self.render()
     
+    def _char_index_for_desired_x(self, mapper: VisualLineMapper, line_within_para: int) -> int:
+        """Calculate the character index for desired_x on a given line.
+
+        This helper centralizes the logic for mapping a visual X position
+        (desired_x) to a character index, accounting for hanging indents.
+        """
+        line_text = mapper.lines[line_within_para]
+        # Get actual line content length (excluding hanging indent prefix)
+        line_content_len = len(line_text) - (mapper.hanging_width if line_within_para > 0 else 0)
+
+        # Convert visual X to content column
+        content_x = mapper.content_column_from_visual(line_within_para, self.desired_x)
+        content_x = min(content_x, line_content_len)
+
+        return mapper.line_and_column_to_char(line_within_para, content_x)
+
     def _move_cursor_down_in_document(self):
         """Move cursor down one line in the document and center view."""
-        # Get current document line  
+        # Get current document line
         last_visual_y = len(self.lines) - 1
         while last_visual_y >= 0 and self._is_page_break_line(self.lines[last_visual_y]):
             last_visual_y -= 1
         doc_line = self._visual_y_to_document_line(last_visual_y) + 1  # Line below current view
-        
+
         # Convert to paragraph and line within paragraph
         paragraph_index, line_within_para = self._document_line_to_paragraph(doc_line)
         if paragraph_index >= len(self.model.paragraphs):
             return
-        
-        # Get the rendered lines for this paragraph
-        para_lines, para_counts = render_paragraph(self.model.paragraphs[paragraph_index], self.num_columns)
-        
-        # Calculate character index for the desired X position on this line
-        if line_within_para >= len(para_lines):
+
+        # Use VisualLineMapper for coordinate conversion
+        mapper = get_line_mapper(self.model.paragraphs[paragraph_index], self.num_columns)
+
+        if line_within_para >= mapper.line_count:
             return
-        
-        line_text = para_lines[line_within_para]
-        hanging_width = _get_hanging_indent_width(self.model.paragraphs[paragraph_index])
-        if line_within_para > 0 and hanging_width > 0:
-            if self.desired_x <= hanging_width:
-                actual_x = hanging_width
-            else:
-                actual_x = min(self.desired_x, len(line_text))
-        else:
-            actual_x = min(self.desired_x, len(line_text))
-        
-        # Calculate character index in the paragraph
-        if line_within_para == 0:
-            char_index = actual_x
-        else:
-            content_x = actual_x - (hanging_width if (hanging_width > 0) else 0)
-            if content_x < 0:
-                content_x = 0
-            char_index = para_counts[line_within_para - 1] + content_x
-        
+
+        # Calculate character index using the mapper
+        char_index = self._char_index_for_desired_x(mapper, line_within_para)
+
         # Update cursor position
         self.model.cursor_position.paragraph_index = paragraph_index
         self.model.cursor_position.character_index = char_index
@@ -784,26 +847,12 @@ class TerminalTextView(TextView):
         para_idx, line_in_para = self._document_line_to_paragraph(doc_line)
         if para_idx >= len(self.model.paragraphs):
             return
-        para = self.model.paragraphs[para_idx]
-        para_lines, counts = render_paragraph(para, self.num_columns)
-        if line_in_para >= len(para_lines):
+
+        mapper = get_line_mapper(self.model.paragraphs[para_idx], self.num_columns)
+        if line_in_para >= mapper.line_count:
             return
-        line_text = para_lines[line_in_para]
-        hanging_width = _get_hanging_indent_width(para)
-        if line_in_para > 0 and hanging_width > 0:
-            if self.desired_x <= hanging_width:
-                actual_x = hanging_width
-            else:
-                actual_x = min(self.desired_x, len(line_text))
-        else:
-            actual_x = min(self.desired_x, len(line_text))
-        if line_in_para == 0:
-            char_index = actual_x
-        else:
-            content_x = actual_x - (hanging_width if hanging_width > 0 else 0)
-            if content_x < 0:
-                content_x = 0
-            char_index = counts[line_in_para - 1] + content_x
+
+        char_index = self._char_index_for_desired_x(mapper, line_in_para)
         self.model.cursor_position.paragraph_index = para_idx
         self.model.cursor_position.character_index = char_index
 
