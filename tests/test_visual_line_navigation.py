@@ -183,7 +183,7 @@ def test_kill_visual_line():
 
 
 def test_kill_at_end_of_visual_line():
-    """Test Ctrl-K at end of visual line deletes nothing from current line."""
+    """Test Ctrl-K at end of visual line deletes to the line boundary."""
     view = TerminalTextView()
     view.num_columns = 20  # Force wrapping
     view.num_rows = 10
@@ -191,17 +191,103 @@ def test_kill_at_end_of_visual_line():
     long_text = "This is a very long line that will definitely wrap around"
     model = TextModel(view, paragraphs=[long_text])
     
-    # Position cursor at end of first visual line (position 20)
-    # Note: position 20 is considered the end of the first line
-    model.cursor_position = CursorPosition(0, 20)
+    # Position cursor at end of first visual line (position 19, just before wrap)
+    # Position 20 would be at the START of the second line, not the end of the first
+    model.cursor_position = CursorPosition(0, 19)
     
-    # Kill - at position 20, we're at the end of the first visual line
-    # So this should do nothing (no text to delete on this line)
+    # Kill - at position 19, we're at the last character of the first visual line
+    # The first visual line ends at position 20, so delete from 19 to 20
     model.kill_line()
     
-    # Text should be unchanged
-    assert model.paragraphs[0] == long_text
+    # The space at position 19 should be deleted
+    expected = "This is a very longline that will definitely wrap around"
+    assert model.paragraphs[0] == expected
+    assert model.cursor_position.character_index == 19
+
+
+def test_kill_at_start_of_wrapped_visual_line():
+    """Test Ctrl-K at start of wrapped visual line deletes that line.
+    
+    Regression test: Previously, C-k did nothing when the cursor was at the 
+    first position of a visual line that is not the beginning of the paragraph. 
+    Now it correctly deletes that visual line.
+    """
+    view = TerminalTextView()
+    view.num_columns = 20  # Force wrapping
+    view.num_rows = 10
+    
+    # Create text that wraps across multiple visual lines
+    # "This is a very long " (20 chars) - first visual line
+    # "line that will " (16 chars) - second visual line
+    # "definitely wrap " (16 chars) - third visual line
+    # "around" - fourth visual line
+    long_text = "This is a very long line that will definitely wrap around"
+    model = TextModel(view, paragraphs=[long_text])
+    
+    # Position cursor at the start of the second visual line (position 20)
+    model.cursor_position = CursorPosition(0, 20)
+    
+    # Kill line - should delete the second visual line
+    model.kill_line()
+    
+    # Expected: "This is a very long definitely wrap around"
+    # The text from position 20 to the end of that visual line should be deleted
+    expected = "This is a very long definitely wrap around"
+    assert model.paragraphs[0] == expected
     assert model.cursor_position.character_index == 20
+
+
+def test_kill_non_last_visual_line_stays_in_paragraph():
+    """Test Ctrl-K on non-last visual line keeps cursor in same paragraph."""
+    view = TerminalTextView()
+    view.num_columns = 20  # Force wrapping
+    view.num_rows = 10
+    
+    # Create text that wraps across multiple visual lines
+    long_text = "This is a very long line that will definitely wrap around"
+    model = TextModel(view, paragraphs=[long_text, "Second paragraph"])
+    
+    # Position cursor at the start of the second visual line (not the last)
+    # "line that will " starts at position 20
+    model.cursor_position = CursorPosition(0, 20)
+    
+    # Kill the second visual line
+    model.kill_line()
+    
+    # After deleting, cursor should stay in paragraph 0
+    # It should NOT move to paragraph 1 because this wasn't the last visual line
+    assert len(model.paragraphs) == 2
+    assert model.cursor_position.paragraph_index == 0
+    assert model.cursor_position.character_index == 20
+
+
+def test_kill_last_visual_line_advances_to_next_paragraph():
+    """Test Ctrl-K on last visual line advances cursor to next paragraph."""
+    view = TerminalTextView()
+    view.num_columns = 20  # Force wrapping
+    view.num_rows = 10
+    
+    # Create text that wraps across multiple visual lines with a second paragraph
+    # "This is a very long " (20 chars) - first visual line
+    # "line that will " (15 chars) - second visual line  
+    # "definitely wrap " (16 chars) - third visual line
+    # "around" (6 chars) - fourth visual line (LAST visual line of paragraph)
+    long_text = "This is a very long line that will definitely wrap around"
+    model = TextModel(view, paragraphs=[long_text, "Second paragraph"])
+    
+    # Position cursor at the start of the last visual line
+    # "around" starts at position 51
+    model.cursor_position = CursorPosition(0, 51)
+    
+    # Kill the last visual line
+    model.kill_line()
+    
+    # After deleting "around", we should be at the end of paragraph 0
+    # The cursor should advance to the beginning of paragraph 1
+    assert model.paragraphs[0] == "This is a very long line that will definitely wrap "
+    assert len(model.paragraphs) == 2
+    assert model.cursor_position.paragraph_index == 1
+    assert model.cursor_position.character_index == 0
 
 
 def test_move_in_short_line():

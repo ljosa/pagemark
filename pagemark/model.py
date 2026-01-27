@@ -1103,12 +1103,6 @@ class TextModel:
             self.view.render()
             return
 
-        # If exactly at a visual line boundary (start of line), do nothing
-        if char_idx == mapper.line_start(line_index) and line_index > 0:
-            # This means we're at the start of a wrapped line
-            self.view.render()
-            return
-
         # Delete to the end of the current visual line
         visual_line_end = mapper.line_end(line_index)
         if char_idx < visual_line_end:
@@ -1117,6 +1111,15 @@ class TextModel:
             self._sync_styles_length()
             style_mask = self.styles[para_idx]
             self.styles[para_idx] = style_mask[:char_idx] + style_mask[visual_line_end:]
+            
+            # After deleting the last visual line of a multi-line paragraph, if we're now
+            # at the end of the paragraph and there's a next paragraph,
+            # move the cursor to the beginning of the next paragraph
+            is_last_visual_line = (line_index == mapper.line_count - 1)
+            is_multiline_para = (mapper.line_count > 1)
+            at_end_of_para = (char_idx == len(self.paragraphs[para_idx]))
+            if is_last_visual_line and is_multiline_para and at_end_of_para and para_idx + 1 < len(self.paragraphs):
+                self.cursor_position = CursorPosition(para_idx + 1, 0)
         # else: no change
 
         self.view.render()
