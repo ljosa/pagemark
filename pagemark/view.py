@@ -677,7 +677,12 @@ class TerminalTextView(TextView):
             while (self.visual_cursor_y < len(self.lines) and
                    self._is_page_break_line(self.lines[self.visual_cursor_y])):
                 self.visual_cursor_y += 1
-            self.visual_cursor_x = 0
+            # For hanging indent, cursor starts at indent position, not column 0
+            next_line_index = line_index + 1
+            if mapper.has_hanging_indent(next_line_index):
+                self.visual_cursor_x = mapper.hanging_width
+            else:
+                self.visual_cursor_x = 0
         elif self.visual_cursor_x < 0:
             self.visual_cursor_x = 0
 
