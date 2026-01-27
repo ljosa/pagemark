@@ -875,67 +875,47 @@ class TextModel:
     
     def _get_visual_line_info(self):
         """Get information about the current visual line.
-        
+
         Returns:
-            Tuple of (line_index, para_lines, para_counts)
+            Tuple of (line_index, mapper) where mapper is a VisualLineMapper.
         """
-        from .view import render_paragraph
-        
+        from .view import get_line_mapper
+
         para_idx = self.cursor_position.paragraph_index
         char_idx = self.cursor_position.character_index
         para = self.paragraphs[para_idx]
-        
-        # Get wrapped lines for current paragraph
-        para_lines, para_counts = render_paragraph(para, self.view.num_columns)
-        
-        # Find which visual line we're on within the paragraph
-        # Rule: if cursor is exactly at a line boundary (equal to a cumulative
-        # count), it is considered at the beginning of the NEXT visual line.
-        # Therefore select the first line whose cumulative count is strictly
-        # greater than the current char index; otherwise, the last line.
-        line_index = len(para_counts) - 1  # Default to last line
-        if para_counts:
-            for i, count in enumerate(para_counts):
-                if char_idx < count:  # strictly less selects this line
-                    line_index = i
-                    break
-                
-        return line_index, para_lines, para_counts
+
+        mapper = get_line_mapper(para, self.view.num_columns)
+        line_index = mapper.line_for_char_index(char_idx)
+
+        return line_index, mapper
     
     def move_beginning_of_line(self):
         """Move cursor to beginning of visual line (Emacs-style Ctrl-A)."""
-        line_index, _, para_counts = self._get_visual_line_info()
-        
+        line_index, mapper = self._get_visual_line_info()
+
         # Calculate the start position of this visual line
-        if line_index == 0:
-            self.cursor_position.character_index = 0
-        else:
-            self.cursor_position.character_index = para_counts[line_index - 1]
-        
+        self.cursor_position.character_index = mapper.line_start(line_index)
+
         self._update_caret_style_from_position()
         self.view.render()
-    
+
     def move_end_of_line(self):
         """Move cursor to end of visual line (Emacs-style Ctrl-E)."""
-        line_index, _, para_counts = self._get_visual_line_info()
-        
+        line_index, mapper = self._get_visual_line_info()
+
         para_idx = self.cursor_position.paragraph_index
         para = self.paragraphs[para_idx]
-        
+
         # Move to the end of this visual line
-        if para_counts:
-            if line_index == len(para_counts) - 1:
-                # Last visual line - go to actual end of paragraph
-                self.cursor_position.character_index = len(para)
-            else:
-                # Not the last line - go to last char of this visual line
-                # para_counts[line_index] is the first char of the NEXT line
-                # So para_counts[line_index] - 1 is the last char of THIS line
-                self.cursor_position.character_index = para_counts[line_index] - 1
+        if line_index == mapper.line_count - 1:
+            # Last visual line - go to actual end of paragraph
+            self.cursor_position.character_index = len(para)
         else:
-            # Empty paragraph
-            self.cursor_position.character_index = 0
-        
+            # Not the last line - go to last char of this visual line
+            # line_end is the first char of the NEXT line, so subtract 1
+            self.cursor_position.character_index = mapper.line_end(line_index) - 1
+
         self._update_caret_style_from_position()
         self.view.render()
     
@@ -1109,7 +1089,7 @@ class TextModel:
     
     def kill_line(self):
         """Delete from cursor to end of visual line (Emacs-style Ctrl-K)."""
-        _, _, para_counts = self._get_visual_line_info()
+        line_index, mapper = self._get_visual_line_info()
 
         para_idx = self.cursor_position.paragraph_index
         char_idx = self.cursor_position.character_index
@@ -1123,26 +1103,22 @@ class TextModel:
             self.view.render()
             return
 
-        # If exactly at a visual line boundary (end of previous line), do nothing
-        if para_counts and char_idx in para_counts:
+        # If exactly at a visual line boundary (start of line), do nothing
+        if char_idx == mapper.line_start(line_index) and line_index > 0:
+            # This means we're at the start of a wrapped line
             self.view.render()
             return
 
-        # Otherwise delete to the end of the current visual line (first count > char_idx)
-        visual_line_end = None
-        if para_counts:
-            for count in para_counts:
-                if char_idx < count:
-                    visual_line_end = count
-                    break
-        if visual_line_end is not None and char_idx < visual_line_end:
+        # Delete to the end of the current visual line
+        visual_line_end = mapper.line_end(line_index)
+        if char_idx < visual_line_end:
             self.paragraphs[para_idx] = para[:char_idx] + para[visual_line_end:]
             # Maintain styles
             self._sync_styles_length()
             style_mask = self.styles[para_idx]
             self.styles[para_idx] = style_mask[:char_idx] + style_mask[visual_line_end:]
         # else: no change
-        
+
         self.view.render()
 
 
