@@ -353,81 +353,76 @@ class TerminalTextView(TextView):
     @override
     def get_selection_ranges(self):
         """Calculate selection ranges for visible lines.
-        
+
         Returns:
             List of tuples (start_col, end_col) for each visible line, or None if no selection.
         """
         if self.model.selection_start is None or self.model.selection_end is None:
             return None
-        
+
         # Get normalized selection bounds
         start = self.model.selection_start
         end = self.model.selection_end
-        if (start.paragraph_index > end.paragraph_index or 
-            (start.paragraph_index == end.paragraph_index and 
+        if (start.paragraph_index > end.paragraph_index or
+            (start.paragraph_index == end.paragraph_index and
              start.character_index > end.character_index)):
             start, end = end, start
-        
+
         selection_ranges = []
         current_para_idx = self.start_paragraph_index
         current_line_offset = self.first_paragraph_line_offset
-        
+        current_mapper: Optional[VisualLineMapper] = None
+
         for line_idx, line in enumerate(self.lines):
             # Skip page break lines consistently
             if self._is_page_break_line(line):
                 selection_ranges.append(None)
                 continue
-            
+
             # Check if this line is within selection
             if current_para_idx < start.paragraph_index or current_para_idx > end.paragraph_index:
                 selection_ranges.append(None)
             else:
                 # This paragraph is at least partially selected
                 para = self.model.paragraphs[current_para_idx]
-                _, para_counts = render_paragraph(para, self.num_columns)
-                
-                # Calculate character range for this visual line
-                if current_line_offset == 0:
-                    line_start_char = 0
-                else:
-                    line_start_char = para_counts[current_line_offset - 1]
+                # Get or refresh mapper for current paragraph
+                if current_mapper is None or current_line_offset == 0:
+                    current_mapper = get_line_mapper(para, self.num_columns)
 
-                if current_line_offset < len(para_counts):
-                    line_end_char = para_counts[current_line_offset]
-                else:
-                    line_end_char = len(para)
-                
+                # Get character range for this visual line using mapper
+                line_start_char = current_mapper.line_start(current_line_offset)
+                line_end_char = current_mapper.line_end(current_line_offset)
+
                 # Calculate selection within this line
                 sel_start = 0
                 sel_end = len(line)
-                # Hanging indent offset for wrapped lines
-                hanging_width = _get_hanging_indent_width(para)
-                visual_offset = hanging_width if (current_line_offset > 0 and hanging_width > 0) else 0
-                
+                # Get visual offset for hanging indent
+                visual_offset = current_mapper.hanging_width if current_mapper.has_hanging_indent(current_line_offset) else 0
+
                 if current_para_idx == start.paragraph_index:
                     if start.character_index > line_start_char:
-                        sel_start = max(0, start.character_index - line_start_char) + visual_offset
+                        sel_start = (start.character_index - line_start_char) + visual_offset
                     else:
-                        sel_start = 0 + visual_offset
-                
+                        sel_start = visual_offset
+
                 if current_para_idx == end.paragraph_index:
                     if end.character_index < line_end_char:
                         sel_end = min(len(line), (end.character_index - line_start_char) + visual_offset)
-                    else:
-                        sel_end = min(len(line), len(line))
-                
+
                 if sel_start < sel_end:
                     selection_ranges.append((sel_start, sel_end))
                 else:
                     selection_ranges.append(None)
-            
+
             # Move to next line
             current_line_offset += 1
-            para_line_count = self._get_paragraph_line_count(current_para_idx)
-            if current_line_offset >= para_line_count:
+            if current_mapper is None:
+                current_mapper = get_line_mapper(self.model.paragraphs[current_para_idx], self.num_columns)
+            if current_line_offset >= current_mapper.line_count:
                 current_para_idx += 1
                 current_line_offset = 0
-        
+                current_mapper = None  # Will be refreshed for next paragraph
+
         return selection_ranges
     
     def render(self):
