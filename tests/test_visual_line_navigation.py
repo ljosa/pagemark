@@ -237,6 +237,59 @@ def test_kill_at_start_of_wrapped_visual_line():
     assert model.cursor_position.character_index == 20
 
 
+def test_kill_non_last_visual_line_stays_in_paragraph():
+    """Test Ctrl-K on non-last visual line keeps cursor in same paragraph."""
+    view = TerminalTextView()
+    view.num_columns = 20  # Force wrapping
+    view.num_rows = 10
+    
+    # Create text that wraps across multiple visual lines
+    long_text = "This is a very long line that will definitely wrap around"
+    model = TextModel(view, paragraphs=[long_text, "Second paragraph"])
+    
+    # Position cursor at the start of the second visual line (not the last)
+    # "line that will " starts at position 20
+    model.cursor_position = CursorPosition(0, 20)
+    
+    # Kill the second visual line
+    model.kill_line()
+    
+    # After deleting, cursor should stay in paragraph 0
+    # It should NOT move to paragraph 1 because this wasn't the last visual line
+    assert len(model.paragraphs) == 2
+    assert model.cursor_position.paragraph_index == 0
+    assert model.cursor_position.character_index == 20
+
+
+def test_kill_last_visual_line_advances_to_next_paragraph():
+    """Test Ctrl-K on last visual line advances cursor to next paragraph."""
+    view = TerminalTextView()
+    view.num_columns = 20  # Force wrapping
+    view.num_rows = 10
+    
+    # Create text that wraps across multiple visual lines with a second paragraph
+    # "This is a very long " (20 chars) - first visual line
+    # "line that will " (15 chars) - second visual line  
+    # "definitely wrap " (16 chars) - third visual line
+    # "around" (6 chars) - fourth visual line (LAST visual line of paragraph)
+    long_text = "This is a very long line that will definitely wrap around"
+    model = TextModel(view, paragraphs=[long_text, "Second paragraph"])
+    
+    # Position cursor at the start of the last visual line
+    # "around" starts at position 51
+    model.cursor_position = CursorPosition(0, 51)
+    
+    # Kill the last visual line
+    model.kill_line()
+    
+    # After deleting "around", we should be at the end of paragraph 0
+    # The cursor should advance to the beginning of paragraph 1
+    assert model.paragraphs[0] == "This is a very long line that will definitely wrap "
+    assert len(model.paragraphs) == 2
+    assert model.cursor_position.paragraph_index == 1
+    assert model.cursor_position.character_index == 0
+
+
 def test_move_in_short_line():
     """Test Ctrl-A/E work normally in lines that don't wrap."""
     view = TerminalTextView()
