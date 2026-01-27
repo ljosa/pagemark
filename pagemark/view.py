@@ -114,6 +114,23 @@ class VisualLineMapper:
             return visual_column - self.hanging_width
         return visual_column
 
+    def line_content_length(self, line_index: int) -> int:
+        """Get the content length of a line (excluding hanging indent prefix).
+
+        This is the number of actual content characters on the line,
+        not counting the visual padding spaces added for wrapped lines.
+        """
+        if line_index < 0 or line_index >= len(self.lines):
+            return 0
+        line_len = len(self.lines[line_index])
+        if line_index > 0 and self.hanging_width > 0:
+            return line_len - self.hanging_width
+        return line_len
+
+    def has_hanging_indent(self, line_index: int) -> bool:
+        """Check if a line has hanging indent applied."""
+        return line_index > 0 and self.hanging_width > 0
+
 def _get_hanging_indent_width(paragraph: str) -> int:
     """Return hanging indent width for bullet/numbered paragraphs.
 
@@ -659,12 +676,9 @@ class TerminalTextView(TextView):
         if line_within_para >= mapper.line_count:
             return
 
-        line_text = mapper.lines[line_within_para]
         # Convert visual X to content column, clamped to line length
         content_x = mapper.content_column_from_visual(line_within_para, desired_x)
-        # Get actual line content length (excluding hanging indent prefix)
-        line_content_len = len(line_text) - (mapper.hanging_width if line_within_para > 0 else 0)
-        content_x = min(content_x, line_content_len)
+        content_x = min(content_x, mapper.line_content_length(line_within_para))
 
         # Convert to character index
         char_index = mapper.line_and_column_to_char(line_within_para, content_x)
@@ -736,13 +750,9 @@ class TerminalTextView(TextView):
         This helper centralizes the logic for mapping a visual X position
         (desired_x) to a character index, accounting for hanging indents.
         """
-        line_text = mapper.lines[line_within_para]
-        # Get actual line content length (excluding hanging indent prefix)
-        line_content_len = len(line_text) - (mapper.hanging_width if line_within_para > 0 else 0)
-
-        # Convert visual X to content column
+        # Convert visual X to content column, clamped to line length
         content_x = mapper.content_column_from_visual(line_within_para, self.desired_x)
-        content_x = min(content_x, line_content_len)
+        content_x = min(content_x, mapper.line_content_length(line_within_para))
 
         return mapper.line_and_column_to_char(line_within_para, content_x)
 
