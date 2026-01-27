@@ -122,6 +122,11 @@ class VisualLineMapper:
         """Convert a visual column to content column for a specific line.
 
         Accounts for hanging indent on wrapped lines and em-dashes displayed as --.
+        
+        When clicking on an em-dash:
+        - First hyphen (visual column) -> position before em-dash (content column)
+        - Second hyphen (visual column) -> position after em-dash (content column + 1)
+        This gives natural cursor positioning when clicking on the two-character display.
         """
         # First handle hanging indent
         adjusted_visual_col = visual_column
@@ -141,6 +146,7 @@ class VisualLineMapper:
         content_pos = 0
         
         for i in range(line_start_char, line_end_char):
+            # Break when we've reached or passed the target visual column
             if visual_pos >= adjusted_visual_col:
                 break
             char = self.paragraph[i] if i < len(self.paragraph) else ''

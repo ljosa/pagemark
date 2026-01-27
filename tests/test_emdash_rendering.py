@@ -138,13 +138,13 @@ def test_emdash_content_column_from_visual():
     assert mapper.content_column_from_visual(0, 0) == 0
     assert mapper.content_column_from_visual(0, 3) == 3
     
-    # Visual column 4: first hyphen of em-dash -> content 4
+    # Visual column 4: first hyphen of em-dash -> content 4 (before em-dash)
     assert mapper.content_column_from_visual(0, 4) == 4
     
-    # Visual column 5: second hyphen of em-dash -> still content 4 (within em-dash)
+    # Visual column 5: second hyphen of em-dash -> content 5 (after em-dash)
     assert mapper.content_column_from_visual(0, 5) == 5
     
-    # Visual column 6: 'w' of "word" -> content 5
+    # Visual column 6: 'w' of "word" -> content 5 (after em-dash)
     assert mapper.content_column_from_visual(0, 6) == 5
 
 
