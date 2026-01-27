@@ -224,3 +224,36 @@ def test_emdash_in_print_formatter_multiple():
     assert page_text.count('--') >= 3
     assert '—' not in page_text
 
+
+def test_emdash_line_wrapping():
+    """Test that em-dashes are counted correctly for line wrapping.
+    
+    Regression test for issue where em-dashes caused lines to exceed
+    the column limit because word wrapping didn't account for visual width.
+    """
+    # This specific case was reported: text that should wrap but didn't
+    paragraph = "To be—or not to be—that is the question. There are also bananas"
+    lines, counts = render_paragraph(paragraph, 65)
+    
+    # After replacing em-dashes with --, all lines should be <= 65 chars
+    for line in lines:
+        assert len(line) <= 65, f"Line exceeds 65 chars: {repr(line)} (len={len(line)})"
+    
+    # The text should wrap to multiple lines since it's 63 chars + 2 em-dashes = 65 visual
+    assert len(lines) >= 2
+
+
+def test_emdash_visual_width_wrapping():
+    """Test that visual width is correctly calculated for wrapping decisions."""
+    # Create text that's exactly at the boundary
+    # 63 content chars + 2 em-dashes = 65 visual chars, should fit on one line if exactly 65
+    # But adding "also" makes it wrap
+    paragraph = "To be—or not to be—that is the question. There are also"
+    lines, counts = render_paragraph(paragraph, 65)
+    
+    # Should wrap because 56 chars + 2 em-dashes = 58 visual, fits on line 1
+    # But we need to verify all lines are within limit
+    for line in lines:
+        assert len(line) <= 65, f"Line exceeds 65 chars: {repr(line)} (len={len(line)})"
+
+

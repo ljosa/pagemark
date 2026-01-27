@@ -253,6 +253,23 @@ def render_paragraph(paragraph: str, num_columns: int) -> tuple[list[str], list[
     if not paragraph:
         return ([""], [0])
 
+    def visual_width(text: str) -> int:
+        """Calculate visual width accounting for em-dashes displayed as two hyphens."""
+        return len(text) + text.count('—')
+    
+    def slice_to_visual_width(text: str, max_visual_width: int) -> str:
+        """Slice text to fit within max_visual_width, accounting for em-dashes.
+        
+        Returns the longest prefix that fits within max_visual_width when displayed.
+        """
+        visual_pos = 0
+        for i, char in enumerate(text):
+            char_width = 2 if char == '—' else 1
+            if visual_pos + char_width > max_visual_width:
+                return text[:i]
+            visual_pos += char_width
+        return text
+    
     hanging_width = _get_hanging_indent_width(paragraph)
     indent_prefix = " " * hanging_width if hanging_width > 0 else ""
 
@@ -284,13 +301,14 @@ def render_paragraph(paragraph: str, num_columns: int) -> tuple[list[str], list[
                 # Empty word at line start means a space should start this line
                 # (happens with 3+ consecutive spaces where third wraps)
                 current_line = ""
-            elif len(word) >= width:
+            elif visual_width(word) >= width:
                 # Break long word across as many lines as needed
-                while len(word) >= width:
-                    lines.append(get_line_prefix(line_index) + word[:width])
-                    char_count += width
+                while visual_width(word) >= width:
+                    slice_text = slice_to_visual_width(word, width)
+                    lines.append(get_line_prefix(line_index) + slice_text)
+                    char_count += len(slice_text)
                     cumulative_counts.append(char_count)
-                    word = word[width:]
+                    word = word[len(slice_text):]
                     line_index += 1
                     width = available_width_for_line(line_index)
                 current_line = word
@@ -306,7 +324,7 @@ def render_paragraph(paragraph: str, num_columns: int) -> tuple[list[str], list[
                 cumulative_counts.append(char_count)
                 line_index += 1
                 current_line = ""  # Start new line (space will be added by next iteration)
-            elif len(current_line) + len(word) <= width:
+            elif visual_width(current_line) + visual_width(word) <= width:
                 current_line += word
             else:
                 # Word doesn't fit - commit current line and start new
@@ -316,12 +334,13 @@ def render_paragraph(paragraph: str, num_columns: int) -> tuple[list[str], list[
                 line_index += 1
                 width = available_width_for_line(line_index)
                 # Handle long word
-                if len(word) >= width:
-                    while len(word) >= width:
-                        lines.append(get_line_prefix(line_index) + word[:width])
-                        char_count += width
+                if visual_width(word) >= width:
+                    while visual_width(word) >= width:
+                        slice_text = slice_to_visual_width(word, width)
+                        lines.append(get_line_prefix(line_index) + slice_text)
+                        char_count += len(slice_text)
                         cumulative_counts.append(char_count)
-                        word = word[width:]
+                        word = word[len(slice_text):]
                         line_index += 1
                         width = available_width_for_line(line_index)
                     current_line = word
@@ -330,7 +349,7 @@ def render_paragraph(paragraph: str, num_columns: int) -> tuple[list[str], list[
         elif is_empty_word:
             # Empty word = second space of consecutive spaces
             # Only extend into margin when adding space EXACTLY fills the line
-            if len(current_line) + 1 == width and is_not_last_word:
+            if visual_width(current_line) + 1 == width and is_not_last_word:
                 # Extend into margin: add both spaces (keeps double-space together)
                 current_line += "  "
                 skip_next_space = True
@@ -339,7 +358,7 @@ def render_paragraph(paragraph: str, num_columns: int) -> tuple[list[str], list[
                 current_line += " "
         else:
             # Normal word - check if it fits
-            if len(current_line) + 1 + len(word) < width:
+            if visual_width(current_line) + 1 + visual_width(word) < width:
                 current_line += " " + word
             else:
                 # Commit current line
@@ -349,12 +368,13 @@ def render_paragraph(paragraph: str, num_columns: int) -> tuple[list[str], list[
                 line_index += 1
                 width = available_width_for_line(line_index)
                 # Place the word on the new line, breaking if needed
-                if len(word) >= width:
-                    while len(word) >= width:
-                        lines.append(get_line_prefix(line_index) + word[:width])
-                        char_count += width
+                if visual_width(word) >= width:
+                    while visual_width(word) >= width:
+                        slice_text = slice_to_visual_width(word, width)
+                        lines.append(get_line_prefix(line_index) + slice_text)
+                        char_count += len(slice_text)
                         cumulative_counts.append(char_count)
-                        word = word[width:]
+                        word = word[len(slice_text):]
                         line_index += 1
                         width = available_width_for_line(line_index)
                     current_line = word
