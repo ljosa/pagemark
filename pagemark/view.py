@@ -814,31 +814,21 @@ class TerminalTextView(TextView):
         self.first_paragraph_line_offset = line_in_para
 
     def _cursor_doc_line(self) -> int:
-        # Compute the document line where the cursor is (counting content lines only)
+        """Compute the document line where the cursor is (counting content lines only)."""
         cursor_para_idx = self.model.cursor_position.paragraph_index
         doc_line = 0
         for i in range(cursor_para_idx):
             doc_line += self._get_paragraph_line_count(i)
         # Which wrapped line contains the cursor
-        _, para_counts = render_paragraph(self.model.paragraphs[cursor_para_idx], self.num_columns)
-        line_idx = 0
-        char_idx = self.model.cursor_position.character_index
-        for i, count in enumerate(para_counts):
-            if char_idx < count:
-                line_idx = i
-                break
-        else:
-            line_idx = len(para_counts) - 1
+        mapper = get_line_mapper(self.model.paragraphs[cursor_para_idx], self.num_columns)
+        line_idx = mapper.line_for_char_index(self.model.cursor_position.character_index)
         return doc_line + line_idx
 
     def _set_cursor_to_doc_line_start(self, doc_line: int) -> None:
+        """Set cursor to the start of a document line."""
         para_idx, line_in_para = self._document_line_to_paragraph(doc_line)
-        para = self.model.paragraphs[para_idx]
-        _, counts = render_paragraph(para, self.num_columns)
-        if line_in_para == 0:
-            char_index = 0
-        else:
-            char_index = counts[line_in_para - 1]
+        mapper = get_line_mapper(self.model.paragraphs[para_idx], self.num_columns)
+        char_index = mapper.line_start(line_in_para)
         self.model.cursor_position.paragraph_index = para_idx
         self.model.cursor_position.character_index = char_index
 
