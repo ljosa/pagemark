@@ -161,7 +161,7 @@ def _get_hanging_indent_width(paragraph: str) -> int:
     """Return hanging indent width for bullet/numbered paragraphs.
 
     Detects optional leading spaces, then one of:
-    - '-' or '*' followed by exactly one space
+    - '-', '*', or non-breaking space (U+00A0) followed by exactly one space
     - one or more digits followed by '.' or ')' and exactly one space
 
     Returns total columns before first text char (base indent + marker + one space),
@@ -170,14 +170,14 @@ def _get_hanging_indent_width(paragraph: str) -> int:
     # Leading spaces
     # Require exactly one space after the marker by asserting the next
     # character is non-space. This prevents triggering on multiple spaces.
-    m = re.match(r"^(\s*)(?:([-*]) (?=\S)|((?:\d+)(?:[\.)]) (?=\S)))", paragraph)
+    m = re.match(r"^(\s*)(?:([-*\xa0]) (?=\S)|((?:\d+)(?:[\.)]) (?=\S)))", paragraph)
     if not m:
         return 0
     leading = m.group(1) or ""
     marker = m.group(2)
     numbered = m.group(3)
     if marker is not None:
-        # '-' or '*' with exactly one trailing space matched
+        # '-', '*', or non-breaking space with exactly one trailing space matched
         return len(leading) + len(marker) + 1
     if numbered is not None:
         # '\d+.' or '\d+)' with exactly one trailing space matched
