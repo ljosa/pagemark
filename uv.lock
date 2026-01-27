@@ -145,10 +145,14 @@ wheels = [
 [[package]]
 name = "curtsies"
 version = "0.4.2"
-source = { git = "https://github.com/ljosa/curtsies?rev=bug-shift-right-python-3-9#8675542ecb8442a484431949f4583ef02f349b16" }
+source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "blessed" },
     { name = "cwcwidth" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/53/d2/ea91db929b5dcded637382235f9f1b7d06ef64b7f2af7fe1be1369e1f0d2/curtsies-0.4.2.tar.gz", hash = "sha256:6ebe33215bd7c92851a506049c720cca4cf5c192c1665c1d7a98a04c4702760e", size = 53559, upload-time = "2023-07-31T20:18:34.271Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/5e/ab/c4ae7ff01c75001829dfa54da9b25632a8206fa5c9036ea0292096b402d0/curtsies-0.4.2-py3-none-any.whl", hash = "sha256:f24d676a8c4711fb9edba1ab7e6134bc52305a222980b3b717bb303f5e94cec6", size = 35444, upload-time = "2023-07-31T20:18:33.058Z" },
 ]
 
 [[package]]
@@ -270,7 +274,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "blessed", specifier = ">=1.21.0" },
-    { name = "curtsies", git = "https://github.com/ljosa/curtsies?rev=bug-shift-right-python-3-9" },
+    { name = "curtsies", specifier = ">=0.4.2" },
     { name = "platformdirs", specifier = ">=4.0.0" },
     { name = "pyobjc-framework-cocoa", marker = "sys_platform == 'darwin'", specifier = ">=11.0" },
     { name = "pyperclip", specifier = ">=1.8.2" },
