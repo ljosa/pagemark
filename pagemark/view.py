@@ -35,6 +35,7 @@ class VisualLineMapper:
     cumulative_counts: list[int]
     hanging_width: int = 0
     num_columns: int = 0  # Wrapping width (0 means unknown/unset)
+    paragraph: str = ""  # Original paragraph text for em-dash counting
 
     @property
     def line_count(self) -> int:
@@ -100,37 +101,73 @@ class VisualLineMapper:
     def visual_column(self, char_index: int) -> int:
         """Get the visual column for a character index.
 
-        This accounts for hanging indent on wrapped lines.
+        This accounts for hanging indent on wrapped lines and em-dashes
+        being displayed as two hyphens.
         """
         line_index, column = self.char_to_line_and_column(char_index)
+        
+        # Count em-dashes from line start to this position to adjust visual column
+        line_start_char = self.line_start(line_index)
+        text_slice = self.paragraph[line_start_char:line_start_char + column]
+        emdash_count = text_slice.count('—')
+        
+        # Each em-dash adds one extra visual column (displayed as --)
+        visual_col = column + emdash_count
+        
         if line_index > 0 and self.hanging_width > 0:
-            return column + self.hanging_width
-        return column
+            return visual_col + self.hanging_width
+        return visual_col
 
     def content_column_from_visual(self, line_index: int, visual_column: int) -> int:
         """Convert a visual column to content column for a specific line.
 
-        Accounts for hanging indent on wrapped lines.
+        Accounts for hanging indent on wrapped lines and em-dashes displayed as --.
         """
+        # First handle hanging indent
+        adjusted_visual_col = visual_column
         if line_index > 0 and self.hanging_width > 0:
             # Clamp clicks in the indent area to the first content position
             if visual_column <= self.hanging_width:
                 return 0
-            return visual_column - self.hanging_width
-        return visual_column
+            adjusted_visual_col = visual_column - self.hanging_width
+        
+        # Now account for em-dashes: each em-dash takes 2 visual columns but 1 content column
+        # We need to find the content column that corresponds to the visual column
+        line_start_char = self.line_start(line_index)
+        line_end_char = self.line_end(line_index)
+        
+        # Walk through content characters counting visual columns
+        visual_pos = 0
+        content_pos = 0
+        
+        for i in range(line_start_char, line_end_char):
+            if visual_pos >= adjusted_visual_col:
+                break
+            char = self.paragraph[i] if i < len(self.paragraph) else ''
+            if char == '—':
+                visual_pos += 2  # Em-dash takes 2 visual columns
+            else:
+                visual_pos += 1
+            content_pos += 1
+        
+        return content_pos
 
     def line_content_length(self, line_index: int) -> int:
         """Get the content length of a line (excluding hanging indent prefix).
 
         This is the number of actual content characters on the line,
         not counting the visual padding spaces added for wrapped lines.
+        Note: This returns the CONTENT character count, not the visual width.
         """
         if line_index < 0 or line_index >= len(self.lines):
             return 0
-        line_len = len(self.lines[line_index])
-        if line_index > 0 and self.hanging_width > 0:
-            return line_len - self.hanging_width
-        return line_len
+        
+        # Get the character range for this line
+        line_start_char = self.line_start(line_index)
+        line_end_char = self.line_end(line_index)
+        
+        # Return the number of content characters
+        return line_end_char - line_start_char
 
     def has_hanging_indent(self, line_index: int) -> bool:
         """Check if a line has hanging indent applied."""
@@ -324,6 +361,9 @@ def render_paragraph(paragraph: str, num_columns: int) -> tuple[list[str], list[
     char_count += len(current_line)
     cumulative_counts.append(char_count)
 
+    # Replace em-dashes with double hyphens for display
+    lines = [line.replace('—', '--') for line in lines]
+
     return (lines, cumulative_counts)
 
 
@@ -340,7 +380,8 @@ def get_line_mapper(paragraph: str, num_columns: int) -> VisualLineMapper:
         lines=lines,
         cumulative_counts=cumulative_counts,
         hanging_width=hanging_width,
-        num_columns=num_columns
+        num_columns=num_columns,
+        paragraph=paragraph
     )
 
 
