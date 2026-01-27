@@ -1103,12 +1103,6 @@ class TextModel:
             self.view.render()
             return
 
-        # If exactly at a visual line boundary (start of line), do nothing
-        if char_idx == mapper.line_start(line_index) and line_index > 0:
-            # This means we're at the start of a wrapped line
-            self.view.render()
-            return
-
         # Delete to the end of the current visual line
         visual_line_end = mapper.line_end(line_index)
         if char_idx < visual_line_end:
