@@ -208,9 +208,9 @@ def test_kill_at_end_of_visual_line():
 def test_kill_at_start_of_wrapped_visual_line():
     """Test Ctrl-K at start of wrapped visual line deletes that line.
     
-    Bug: C-k does nothing when the cursor is at the first position of a 
-    visual line that is not the beginning of the paragraph. It should 
-    delete that visual line.
+    Regression test: Previously, C-k did nothing when the cursor was at the 
+    first position of a visual line that is not the beginning of the paragraph. 
+    Now it correctly deletes that visual line.
     """
     view = TerminalTextView()
     view.num_columns = 20  # Force wrapping
@@ -218,7 +218,7 @@ def test_kill_at_start_of_wrapped_visual_line():
     
     # Create text that wraps across multiple visual lines
     # "This is a very long " (20 chars) - first visual line
-    # "line that will " (15 chars) - second visual line
+    # "line that will " (16 chars) - second visual line
     # "definitely wrap " (16 chars) - third visual line
     # "around" - fourth visual line
     long_text = "This is a very long line that will definitely wrap around"
