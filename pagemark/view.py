@@ -26,10 +26,15 @@ class VisualLineMapper:
 
     Key semantic: A character index that exactly equals cumulative_counts[i]
     is considered to be at the START of line i+1, not at the END of line i.
+
+    Margin extension: When double-space rendering allows lines to extend into
+    the right margin, visual_line_width() may return values > num_columns.
+    Use is_extended() to check if a line uses this feature.
     """
     lines: list[str]
     cumulative_counts: list[int]
     hanging_width: int = 0
+    num_columns: int = 0  # Wrapping width (0 means unknown/unset)
 
     @property
     def line_count(self) -> int:
@@ -131,6 +136,27 @@ class VisualLineMapper:
         """Check if a line has hanging indent applied."""
         return line_index > 0 and self.hanging_width > 0
 
+    def visual_line_width(self, line_index: int) -> int:
+        """Get the actual visual width of a rendered line.
+
+        This may exceed num_columns if the line extends into the margin
+        (e.g., for double-space rendering).
+        """
+        if line_index < 0 or line_index >= len(self.lines):
+            return 0
+        return len(self.lines[line_index])
+
+    def is_extended(self, line_index: int) -> bool:
+        """Check if a line extends beyond the standard wrapping width.
+
+        Returns True if the line's visual width exceeds num_columns,
+        which happens when margin extension is used (e.g., double-space).
+        """
+        if self.num_columns <= 0:
+            return False
+        return self.visual_line_width(line_index) > self.num_columns
+
+
 def _get_hanging_indent_width(paragraph: str) -> int:
     """Return hanging indent width for bullet/numbered paragraphs.
 
@@ -195,6 +221,10 @@ def render_paragraph(paragraph: str, num_columns: int) -> tuple[list[str], list[
             return num_columns
         return num_columns - hanging_width if hanging_width > 0 else num_columns
 
+    def get_line_prefix(idx: int) -> str:
+        """Get the visual prefix for a line (hanging indent spaces for wrapped lines)."""
+        return indent_prefix if (idx > 0 and hanging_width > 0) else ""
+
     for word in words:
         width = available_width_for_line(line_index)
         if current_line is None:
@@ -202,8 +232,7 @@ def render_paragraph(paragraph: str, num_columns: int) -> tuple[list[str], list[
             if len(word) >= width:
                 # Break long word across as many lines as needed
                 while len(word) >= width:
-                    prefix = indent_prefix if (line_index > 0 and hanging_width > 0) else ""
-                    lines.append(prefix + word[:width])
+                    lines.append(get_line_prefix(line_index) + word[:width])
                     char_count += width
                     cumulative_counts.append(char_count)
                     word = word[width:]
@@ -218,8 +247,7 @@ def render_paragraph(paragraph: str, num_columns: int) -> tuple[list[str], list[
                 current_line += " " + word
             else:
                 # Commit current line
-                prefix = indent_prefix if (line_index > 0 and hanging_width > 0) else ""
-                lines.append(prefix + current_line)
+                lines.append(get_line_prefix(line_index) + current_line)
                 char_count += len(current_line) + 1  # +1 for the space that would have been added
                 cumulative_counts.append(char_count)
                 line_index += 1
@@ -227,8 +255,7 @@ def render_paragraph(paragraph: str, num_columns: int) -> tuple[list[str], list[
                 # Place the word on the new line, breaking if needed
                 if len(word) >= width:
                     while len(word) >= width:
-                        prefix = indent_prefix if (line_index > 0 and hanging_width > 0) else ""
-                        lines.append(prefix + word[:width])
+                        lines.append(get_line_prefix(line_index) + word[:width])
                         char_count += width
                         cumulative_counts.append(char_count)
                         word = word[width:]
@@ -240,8 +267,7 @@ def render_paragraph(paragraph: str, num_columns: int) -> tuple[list[str], list[
 
     assert current_line is not None
     # Append the final line
-    prefix = indent_prefix if (line_index > 0 and hanging_width > 0) else ""
-    lines.append(prefix + current_line)
+    lines.append(get_line_prefix(line_index) + current_line)
     char_count += len(current_line)
     cumulative_counts.append(char_count)
 
@@ -260,7 +286,8 @@ def get_line_mapper(paragraph: str, num_columns: int) -> VisualLineMapper:
     return VisualLineMapper(
         lines=lines,
         cumulative_counts=cumulative_counts,
-        hanging_width=hanging_width
+        hanging_width=hanging_width,
+        num_columns=num_columns
     )
 
 
