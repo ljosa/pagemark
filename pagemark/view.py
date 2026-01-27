@@ -429,41 +429,42 @@ class TerminalTextView(TextView):
         paragraph_index = self.start_paragraph_index
         # First paragraph
         para = self.model.paragraphs[paragraph_index]
-        para_lines, para_counts = render_paragraph(para, self.num_columns)
-        
+        mapper = get_line_mapper(para, self.num_columns)
+
         # Clamp first_paragraph_line_offset to valid range
         # This handles cases where the paragraph has shrunk after deletion
-        if self.first_paragraph_line_offset >= len(para_lines):
-            self.first_paragraph_line_offset = max(0, len(para_lines) - 1)
-        
+        if self.first_paragraph_line_offset >= mapper.line_count:
+            self.first_paragraph_line_offset = max(0, mapper.line_count - 1)
+
         if self.first_paragraph_line_offset == 0:
             start_position = CursorPosition(paragraph_index, 0)
         else:
-            start_position = CursorPosition(paragraph_index, para_counts[self.first_paragraph_line_offset - 1] + 1)
-        
+            # +1 because start_position is used for "cursor >= start" comparisons
+            start_position = CursorPosition(paragraph_index, mapper.line_start(self.first_paragraph_line_offset) + 1)
+
         # Build lines with page breaks
         self.lines = []
         self.line_styles = []
         doc_line_start = self._get_document_line_number(paragraph_index, self.first_paragraph_line_offset)
-        
+
         # Add lines from first paragraph
-        lines_wanted = min(len(para_lines) - self.first_paragraph_line_offset, self.num_rows)
+        lines_wanted = min(mapper.line_count - self.first_paragraph_line_offset, self.num_rows)
         for i in range(lines_wanted):
             if len(self.lines) >= self.num_rows:
                 break
             doc_line = doc_line_start + i
+            line_index = self.first_paragraph_line_offset + i
             # Add the actual content line
-            line_text = para_lines[self.first_paragraph_line_offset + i]
+            line_text = mapper.lines[line_index]
             self.lines.append(line_text)
             # Build style line from model.styles and paragraph boundaries
-            start_ci = 0 if (self.first_paragraph_line_offset + i) == 0 else para_counts[self.first_paragraph_line_offset + i - 1]
-            end_ci = para_counts[self.first_paragraph_line_offset + i]
+            start_ci = mapper.line_start(line_index)
+            end_ci = mapper.line_end(line_index)
             st = self.model.styles[paragraph_index] if hasattr(self.model, 'styles') else []
-            style_slice = st[start_ci:end_ci] if st else [0]*len(line_text)
+            style_slice = st[start_ci:end_ci] if st else [0] * len(line_text)
             # Account for hanging indent padding on wrapped lines
-            line_index = self.first_paragraph_line_offset + i
             style_slice = self._adjust_style_slice_for_hanging_indent(style_slice, line_index > 0, para)
-            style_slice = (style_slice + [0]*max(0, len(line_text)-len(style_slice)))[:len(line_text)]
+            style_slice = (style_slice + [0] * max(0, len(line_text) - len(style_slice)))[:len(line_text)]
             self.line_styles.append(style_slice)
             # Check if there's more content after this line
             has_more_content = (i < lines_wanted - 1) or (paragraph_index + 1 < len(self.model.paragraphs))
@@ -473,49 +474,52 @@ class TerminalTextView(TextView):
                 self.lines.append(self._create_page_break_line(page_num))
                 # Add empty style array for page break line to keep indices aligned
                 self.line_styles.append([0] * self.num_columns)
-        
+
         # Set end_position only if we have lines to display
         if lines_wanted > 0:
-            end_position = CursorPosition(paragraph_index, para_counts[self.first_paragraph_line_offset + lines_wanted - 1] + 1)
+            last_line_index = self.first_paragraph_line_offset + lines_wanted - 1
+            # +1 because end_position is used for "cursor < end" comparisons
+            end_position = CursorPosition(paragraph_index, mapper.line_end(last_line_index) + 1)
         else:
             # If no lines from this paragraph, set end to start
             end_position = start_position
-        
+
         # Track total document lines processed
         doc_lines_added = lines_wanted
-        
+
         # Remaining paragraphs
         while len(self.lines) < self.num_rows and paragraph_index + 1 < len(self.model.paragraphs):
             paragraph_index += 1
             para = self.model.paragraphs[paragraph_index]
-            para_lines, para_counts = render_paragraph(para, self.num_columns)
-            
-            for i in range(len(para_lines)):
+            mapper = get_line_mapper(para, self.num_columns)
+
+            for i in range(mapper.line_count):
                 if len(self.lines) >= self.num_rows:
                     break
                 doc_line = doc_line_start + doc_lines_added
                 # Add the actual content line
-                line_text = para_lines[i]
+                line_text = mapper.lines[i]
                 self.lines.append(line_text)
                 st = self.model.styles[paragraph_index] if hasattr(self.model, 'styles') else []
-                start_ci = 0 if i == 0 else para_counts[i-1]
-                end_ci = para_counts[i]
-                style_slice = st[start_ci:end_ci] if st else [0]*len(line_text)
+                start_ci = mapper.line_start(i)
+                end_ci = mapper.line_end(i)
+                style_slice = st[start_ci:end_ci] if st else [0] * len(line_text)
                 # Account for hanging indent padding on wrapped lines
                 style_slice = self._adjust_style_slice_for_hanging_indent(style_slice, i > 0, para)
-                style_slice = (style_slice + [0]*max(0, len(line_text)-len(style_slice)))[:len(line_text)]
+                style_slice = (style_slice + [0] * max(0, len(line_text) - len(style_slice)))[:len(line_text)]
                 self.line_styles.append(style_slice)
                 doc_lines_added += 1
-                end_position = CursorPosition(paragraph_index, para_counts[i] + 1)
+                # +1 because end_position is used for "cursor < end" comparisons
+                end_position = CursorPosition(paragraph_index, mapper.line_end(i) + 1)
                 # Check if there's more content after this line
-                has_more_content = (i < len(para_lines) - 1) or (paragraph_index + 1 < len(self.model.paragraphs))
+                has_more_content = (i < mapper.line_count - 1) or (paragraph_index + 1 < len(self.model.paragraphs))
                 # Add page break if needed and there's more content
                 if self._should_add_page_break(doc_line) and has_more_content and len(self.lines) < self.num_rows:
                     page_num = self._calculate_page_number(doc_line)
                     self.lines.append(self._create_page_break_line(page_num))
                     # Add empty style array for page break line to keep indices aligned
                     self.line_styles.append([0] * self.num_columns)
-        
+
         self.end_paragraph_index = paragraph_index + 1
 
         # If the cursor is outside the view, center the view on the cursor
