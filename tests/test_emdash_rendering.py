@@ -1,6 +1,5 @@
 """Test em-dash rendering and cursor handling."""
 
-import pytest
 from pagemark.model import TextModel, CursorPosition
 from pagemark.view import render_paragraph, get_line_mapper
 from pagemark.print_formatter import PrintFormatter
