@@ -529,31 +529,31 @@ class TextModel:
     
     def center_line(self) -> bool:
         """Center the current paragraph if it fits on one line.
-        
+
         Returns:
             True if centering was successful, False if paragraph is multi-line
         """
-        from .constants import EditorConstants
-        
+        width = self.view.num_columns
+
         para_idx = self.cursor_position.paragraph_index
         paragraph = self.paragraphs[para_idx]
-        
+
         # Strip existing leading/trailing spaces to get true content
         stripped = paragraph.strip()
-        
+
         # Don't center empty lines
         if not stripped:
             self.paragraphs[para_idx] = ""
             self.cursor_position.character_index = 0
             self.view.render()
             return True
-        
+
         # Check if paragraph would wrap (multi-line) or is at max width
-        if len(stripped) >= EditorConstants.DOCUMENT_WIDTH:
+        if len(stripped) >= width:
             return False
-        
+
         # Calculate centering
-        spaces_needed = (EditorConstants.DOCUMENT_WIDTH - len(stripped)) // 2
+        spaces_needed = (width - len(stripped)) // 2
         centered = ' ' * spaces_needed + stripped
         
         # Update the paragraph

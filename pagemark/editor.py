@@ -622,6 +622,26 @@ class Editor:
         """Handle backspace key - delete character before cursor."""
         self.model.backspace()
 
+    def _apply_document_settings(self) -> None:
+        """Load and apply per-document settings from disk.
+
+        Called after associating a filename with the editor so that
+        persisted preferences (line width, spacing, etc.) take effect.
+        """
+        self.session.load_document_settings(self.filename)
+
+        # Apply line length
+        line_length = self.session.get(SessionKeys.LINE_LENGTH, EditorConstants.DOCUMENT_WIDTH)
+        if line_length != self.VIEW_WIDTH:
+            self.VIEW_WIDTH = line_length
+            self.view.num_columns = self.VIEW_WIDTH
+
+        # Apply spacing
+        spacing = self.session.get(SessionKeys.DOUBLE_SPACING, False)
+        if spacing != self.spacing_double:
+            self.spacing_double = spacing
+            self.view.set_double_spacing(self.spacing_double)
+
     def load_file(self, filename: str):
         """Load a file into the editor.
 
@@ -634,7 +654,6 @@ class Editor:
                 content = f.read()
                 # Parse as overstrike to support styled documents; plain text is handled too
                 self.model = TextModel.from_overstrike_text(self.view, content)
-                self.view.render()
                 self.modified = False
         except FileNotFoundError:
             # New file - start with empty document
@@ -642,9 +661,9 @@ class Editor:
         except Exception as e:
             print(f"Error loading file: {e}")
             sys.exit(1)
-        
-        # Load persisted settings for this document
-        self.session.load_document_settings(self.filename)
+
+        self._apply_document_settings()
+        self.view.render()
 
     def load_from_content(self, filename: str, content: str):
         """Load content directly into the editor (for recovery).
@@ -656,12 +675,11 @@ class Editor:
         self.filename = filename
         # Parse as overstrike to support styled documents; plain text is handled too
         self.model = TextModel.from_overstrike_text(self.view, content)
-        self.view.render()
         # Mark as modified since content came from swap, not the actual file
         self.modified = True
-        
-        # Load persisted settings for this document
-        self.session.load_document_settings(self.filename)
+
+        self._apply_document_settings()
+        self.view.render()
 
     def save_file(self, filename: str):
         """Save the current document to a file atomically.
