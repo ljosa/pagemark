@@ -107,11 +107,7 @@ class PrintDialog:
         
         # Add PDF File option
         options.append("PDF File")
-        
-        # If no printers available, ensure PDF File is an option
-        if not options:
-            options = ["PDF File"]
-        
+
         # Try to restore saved printer/output from session
         saved_printer = self.session.get(SessionKeys.PRINTER_NAME)
         if saved_printer and saved_printer in options:

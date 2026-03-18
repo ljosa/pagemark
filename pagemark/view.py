@@ -415,14 +415,17 @@ class TerminalTextView(TextView):
     num_rows: int
     num_columns: int
     first_paragraph_line_offset: int = 0
-    lines: list[str] = []
-    line_styles: list[list[int]] = []  # per-line style flags per column (bold/underline)
     visual_cursor_y: int = 0
     visual_cursor_x: int = 0  # Store visual horizontal position
     desired_x: int = 0  # Desired X position for up/down navigation
     LINES_PER_PAGE: int = EditorConstants.LINES_PER_PAGE  # Base lines per printed page
     CONTEXT_LINES: int = 2  # Overlap context lines when paging
     _double_spacing: bool = False
+
+    def __init__(self) -> None:
+        # Per-instance mutable state (not shared across instances)
+        self.lines: list[str] = []
+        self.line_styles: list[list[int]] = []
     
     def _adjust_style_slice_for_hanging_indent(self, style_slice: list[int], 
                                                 is_wrapped_line: bool, 
