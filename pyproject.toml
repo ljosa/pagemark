@@ -19,6 +19,7 @@ pagemark = "pagemark.__main__:main"
 [dependency-groups]
 dev = [
     "pyright>=1.1.404",
+    "pyte>=0.8.2",
     "pytest>=8.4.1",
     "ruff>=0.12.11",
 ]

@@ -797,18 +797,29 @@ class TerminalTextView(TextView):
         target_y = self.visual_cursor_y + 1
         while target_y < len(self.lines) and self._is_page_break_line(self.lines[target_y]):
             target_y += 1
-        
+
         if target_y >= len(self.lines):
             # Need to move down beyond current view
-            if self.end_paragraph_index >= len(self.model.paragraphs):
-                # At document end, do nothing
+            if self._is_at_last_document_line():
+                # Cursor is on the very last visual line — nothing below
                 return
             # Move cursor down one line in the document
             self._move_cursor_down_in_document()
             return
-        
+
         # Move cursor to the target line at desired X position
         self._move_cursor_to_visual_line(target_y, self.desired_x)
+
+    def _is_at_last_document_line(self) -> bool:
+        """Check if the cursor is on the last visual line of the document."""
+        cp = self.model.cursor_position
+        if cp.paragraph_index < len(self.model.paragraphs) - 1:
+            return False  # Not in the last paragraph
+        # In the last paragraph — check if on its last visual line
+        para = self.model.paragraphs[cp.paragraph_index]
+        mapper = get_line_mapper(para, self.num_columns)
+        line_index = mapper.line_for_char_index(cp.character_index)
+        return line_index >= mapper.line_count - 1
     
     def _move_cursor_to_visual_line(self, visual_y: int, desired_x: int):
         """Move cursor to a specific visual line at the desired X position."""
