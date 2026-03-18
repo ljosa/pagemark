@@ -253,7 +253,6 @@ class TextModel:
         if char_idx > 0:
             para = self.paragraphs[para_idx]
             self.paragraphs[para_idx] = para[:char_idx-1] + para[char_idx:]
-            self._sync_styles_length()
             style_mask = self.styles[para_idx]
             self.styles[para_idx] = style_mask[:char_idx-1] + style_mask[char_idx:]
             self.cursor_position.character_index -= 1
@@ -813,8 +812,6 @@ class TextModel:
             
             # Delete from cursor to end_pos
             self.paragraphs[self.cursor_position.paragraph_index] = para[:pos] + para[end_pos:]
-            # Maintain styles
-            self._sync_styles_length()
             style_mask = self.styles[self.cursor_position.paragraph_index]
             self.styles[self.cursor_position.paragraph_index] = style_mask[:pos] + style_mask[end_pos:]
         elif self.cursor_position.paragraph_index < len(self.paragraphs) - 1:
@@ -843,8 +840,6 @@ class TextModel:
             
             # Delete from pos to original position
             self.paragraphs[self.cursor_position.paragraph_index] = para[:pos] + para[original_pos:]
-            # Maintain styles
-            self._sync_styles_length()
             style_mask = self.styles[self.cursor_position.paragraph_index]
             self.styles[self.cursor_position.paragraph_index] = style_mask[:pos] + style_mask[original_pos:]
             self.cursor_position.character_index = pos
@@ -862,8 +857,6 @@ class TextModel:
         if pos < len(para):
             # Delete character at cursor
             self.paragraphs[self.cursor_position.paragraph_index] = para[:pos] + para[pos+1:]
-            # Maintain styles
-            self._sync_styles_length()
             style_mask = self.styles[self.cursor_position.paragraph_index]
             self.styles[self.cursor_position.paragraph_index] = style_mask[:pos] + style_mask[pos+1:]
         elif self.cursor_position.paragraph_index + 1 < len(self.paragraphs):
@@ -1107,8 +1100,6 @@ class TextModel:
         visual_line_end = mapper.line_end(line_index)
         if char_idx < visual_line_end:
             self.paragraphs[para_idx] = para[:char_idx] + para[visual_line_end:]
-            # Maintain styles
-            self._sync_styles_length()
             style_mask = self.styles[para_idx]
             self.styles[para_idx] = style_mask[:char_idx] + style_mask[visual_line_end:]
             
