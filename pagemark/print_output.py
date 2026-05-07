@@ -21,43 +21,55 @@ class PrintOutput:
         self.lpr_available = shutil.which("lpr") is not None
         self.pdf_generator = PDFGenerator(font_name)
     
-    def print_to_printer(self, pages: List[List[str]], printer: str, 
-                        double_sided: bool = False) -> tuple[bool, str]:
+    def print_to_printer(self, pages: List[List[str]], printer: str,
+                        double_sided: bool = False,
+                        booklet: bool = False) -> tuple[bool, str]:
         """Submit print job to CUPS printer.
-        
+
         Args:
             pages: List of pages from PrintFormatter (85x66 chars each).
             printer: Name of the printer to use.
-            double_sided: Whether to print double-sided.
-            
+            double_sided: Whether to print double-sided. Ignored when
+                ``booklet`` is True (booklet implies short-edge duplex).
+            booklet: If True, produce a saddle-stitched booklet PDF on
+                landscape sheets and request short-edge duplex.
+
         Returns:
             Tuple of (success, error_message).
         """
         if not self.lpr_available:
             return False, "Printing is not available (lpr command not found)"
-        
+
         if not printer:
             return False, "No printer specified"
-        
+
         try:
             # Generate PDF using our Python generator
             runs = getattr(self, 'page_runs', None)
-            pdf_content = self.pdf_generator.generate_pdf(pages, runs)
-            
+            pdf_content = self.pdf_generator.generate_pdf(pages, runs, booklet=booklet)
+
             # Create temporary PDF file
-            with tempfile.NamedTemporaryFile(mode='wb', suffix='.pdf', 
+            with tempfile.NamedTemporaryFile(mode='wb', suffix='.pdf',
                                            delete=False) as pdf_file:
                 pdf_filename = pdf_file.name
                 pdf_file.write(pdf_content)
-            
+
             # Build lpr command to print PDF
             cmd = ['lpr', '-P', printer]
-            
-            # Add double-sided option if requested
-            if double_sided:
-                # CUPS option for double-sided printing
+
+            if booklet:
+                # The booklet PDF has a landscape MediaBox (792x612). Some
+                # printer drivers don't honor that on their own and fall back
+                # to portrait, clipping the page -- declare orientation
+                # explicitly so the driver lays it out landscape.
+                cmd.extend(['-o', 'landscape'])
+                # Booklets fold along the vertical center of the landscape
+                # sheet, which is the short edge -- so the back must be
+                # flipped along that axis to align with the front.
+                cmd.extend(['-o', 'sides=two-sided-short-edge'])
+            elif double_sided:
                 cmd.extend(['-o', 'sides=two-sided-long-edge'])
-            
+
             # Add the PDF file to print
             cmd.append(pdf_filename)
             
@@ -88,24 +100,26 @@ class PrintOutput:
                 os.unlink(pdf_filename)
             return False, f"Print error: {str(e)}"
     
-    def save_to_file(self, pages: List[List[str]], filename: str) -> tuple[bool, str]:
+    def save_to_file(self, pages: List[List[str]], filename: str,
+                     booklet: bool = False) -> tuple[bool, str]:
         """Generate PDF file from pages.
-        
+
         Args:
             pages: List of pages from PrintFormatter (85x66 chars each).
             filename: Output PDF filename.
-            
+            booklet: If True, produce a saddle-stitched booklet PDF.
+
         Returns:
             Tuple of (success, error_message).
         """
         # Ensure filename has .pdf extension
         if not filename.endswith('.pdf'):
             filename += '.pdf'
-        
+
         try:
             # Generate PDF using our Python generator
             runs = getattr(self, 'page_runs', None)
-            pdf_content = self.pdf_generator.generate_pdf(pages, runs)
+            pdf_content = self.pdf_generator.generate_pdf(pages, runs, booklet=booklet)
             
             # Save as PDF file
             with open(filename, 'wb') as f:

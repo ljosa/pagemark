@@ -189,8 +189,8 @@ class SettingsPersistence:
                 return value in available_options
             return True
         
-        # Boolean settings (double_spacing, duplex_printing)
-        if key in ('double_spacing', 'duplex_printing'):
+        # Boolean settings (double_spacing, duplex_printing, booklet)
+        if key in ('double_spacing', 'duplex_printing', 'booklet'):
             return isinstance(value, bool)
         
         # Integer settings (line_length)

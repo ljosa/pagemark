@@ -136,10 +136,11 @@ class SessionKeys:
     PRINTER_NAME = "printer_name"  # Selected printer
     PDF_FILENAME = "pdf_filename"  # Filename for PDF export
     DUPLEX_PRINTING = "duplex_printing"  # Double-sided printing
-    
+    BOOKLET = "booklet"  # Saddle-stitched booklet imposition
+
     # Editor settings
     LAST_SAVE_PATH = "last_save_path"
-    
+
     # Keys that should be persisted to disk
     PERSISTABLE_KEYS = {
         FONT_NAME,
@@ -148,6 +149,7 @@ class SessionKeys:
         PRINTER_NAME,
         PDF_FILENAME,
         DUPLEX_PRINTING,
+        BOOKLET,
     }
 
 

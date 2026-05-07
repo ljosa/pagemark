@@ -795,6 +795,19 @@ class Editor:
             if ord(char) >= 32:
                 self.prompt_input += char
 
+    def _clear_pending_pdf(self):
+        """Drop the pending-PDF state captured by the print dialog.
+
+        Called from both the cancel and the success branches of the PDF
+        filename prompt so the editor never carries stale options into the
+        next print attempt.
+        """
+        self._pending_print_pages = None
+        self._pending_print_font = None
+        self._pending_print_booklet = False
+        if hasattr(self, '_pending_print_page_runs'):
+            self._pending_print_page_runs = None
+
     def _handle_pdf_filename_prompt(self, key_event):
         """Handle keypress during PDF filename prompt."""
         if (key_event.key_type == KeyType.SPECIAL and key_event.value == 'escape') or \
@@ -802,20 +815,19 @@ class Editor:
             # Cancel prompt
             self.prompt_mode = None
             self.prompt_input = ""
-            self._pending_print_pages = None
+            self._clear_pending_pdf()
             self.status_message = "PDF save cancelled"
         elif key_event.key_type == KeyType.SPECIAL and key_event.value == 'enter':
             # Save with entered filename
             if self.prompt_input and hasattr(self, '_pending_print_pages'):
                 font_name = getattr(self, '_pending_print_font', 'Courier')
                 page_runs = getattr(self, '_pending_print_page_runs', None)
-                self._save_to_pdf(self._pending_print_pages, self.prompt_input, font_name, page_runs)
+                booklet = getattr(self, '_pending_print_booklet', False)
+                self._save_to_pdf(self._pending_print_pages, self.prompt_input,
+                                  font_name, page_runs, booklet=booklet)
                 # Save PDF filename to session
                 self.session.set(SessionKeys.PDF_FILENAME, self.prompt_input)
-                self._pending_print_pages = None
-                self._pending_print_font = None
-                if hasattr(self, '_pending_print_page_runs'):
-                    self._pending_print_page_runs = None
+                self._clear_pending_pdf()
             self.prompt_mode = None
             self.prompt_input = ""
         elif key_event.key_type == KeyType.SPECIAL and key_event.value == 'backspace':
@@ -880,7 +892,9 @@ class Editor:
             pf.format_pages()
             page_runs = pf.get_page_runs()
             pages_for_print = pf.pages
-            self._print_to_printer(pages_for_print, result.printer_name, result.double_sided, page_runs, result.font_name)
+            self._print_to_printer(pages_for_print, result.printer_name,
+                                   result.double_sided, page_runs,
+                                   result.font_name, booklet=result.booklet)
         elif result.action == PrintAction.SAVE_PDF:
             # Save to PDF file - prompt for filename
             self.prompt_mode = 'pdf_filename'
@@ -900,6 +914,7 @@ class Editor:
             self._pending_print_pages = pf.pages
             self._pending_print_font = result.font_name
             self._pending_print_page_runs = pf.get_page_runs()
+            self._pending_print_booklet = result.booklet
 
         # Persist spacing choice in session and update view
         self.spacing_double = dialog.double_spacing
@@ -925,7 +940,9 @@ class Editor:
         if hasattr(self, '_rendered_once'):
             delattr(self, '_rendered_once')
 
-    def _print_to_printer(self, pages, printer_name, double_sided, page_runs=None, font_name="Courier"):
+    def _print_to_printer(self, pages, printer_name, double_sided,
+                          page_runs=None, font_name="Courier",
+                          booklet=False):
         """Submit print job to printer.
 
         Args:
@@ -934,6 +951,7 @@ class Editor:
             double_sided: Whether to print double-sided.
             page_runs: Optional style runs for the pages.
             font_name: Font to use for PDF generation.
+            booklet: Whether to impose pages as a saddle-stitched booklet.
         """
         # Show progress message
         self.status_message = f"Printing to {printer_name}..."
@@ -946,21 +964,23 @@ class Editor:
             # Use the specific error message
             self.status_message = f"✗ Font error: {e}"
             return
-            
+
         # Set runs on output if there are any styled runs
         if page_runs:
             # Check if there are any non-empty run lines
             has_styled_content = any(any(line_runs for line_runs in page if line_runs) for page in page_runs)
             if has_styled_content:
                 output.page_runs = page_runs
-        success, error = output.print_to_printer(pages, printer_name, double_sided)
+        success, error = output.print_to_printer(pages, printer_name,
+                                                  double_sided, booklet=booklet)
 
         if success:
             self.status_message = f"✓ Successfully printed to {printer_name}"
         else:
             self.status_message = f"✗ Print failed: {error}"
 
-    def _save_to_pdf(self, pages, filename, font_name="Courier", page_runs=None):
+    def _save_to_pdf(self, pages, filename, font_name="Courier",
+                     page_runs=None, booklet=False):
         """Save pages to PDF file.
 
         Args:
@@ -968,6 +988,7 @@ class Editor:
             filename: Output PDF filename.
             font_name: Font to use for PDF generation.
             page_runs: Optional style runs for the pages.
+            booklet: Whether to impose pages as a saddle-stitched booklet.
         """
         # Show progress message
         self.status_message = f"Saving PDF to {filename}..."
@@ -993,7 +1014,7 @@ class Editor:
                 output.page_runs = page_runs
         
         # Use the provided pages (already formatted with correct line length)
-        success, message = output.save_to_file(pages, filename)
+        success, message = output.save_to_file(pages, filename, booklet=booklet)
 
         if success:
             if message:  # If there's a message

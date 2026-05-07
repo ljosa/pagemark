@@ -116,7 +116,8 @@ def test_print_to_printer_flow():
                 mock_output.print_to_printer.assert_called_once_with(
                     [["Page 1"], ["Page 2"]],
                     "TestPrinter",
-                    True
+                    True,
+                    booklet=False,
                 )
                 
                 # Verify status message
@@ -197,7 +198,8 @@ def test_pdf_filename_prompt_save():
             # Verify save was called
             mock_output.save_to_file.assert_called_once_with(
                 [["Page 1"]],
-                "test.pdf"
+                "test.pdf",
+                booklet=False,
             )
             
             # Verify prompt cleared
@@ -221,12 +223,21 @@ def test_pdf_filename_prompt_cancel():
         is_sequence=False
     )
     
+    # Booklet flag also gets stored when the dialog defers PDF saving;
+    # cancelling the prompt must wipe it (and the other pending state).
+    editor._pending_print_booklet = True
+    editor._pending_print_font = "Courier"
+    editor._pending_print_page_runs = []
+
     editor._handle_pdf_filename_prompt(key_event)
-    
-    # Verify prompt cancelled
+
+    # Verify prompt cancelled and pending PDF state cleared symmetrically
     assert editor.prompt_mode is None
     assert editor.prompt_input == ""
     assert editor._pending_print_pages is None
+    assert editor._pending_print_font is None
+    assert editor._pending_print_booklet is False
+    assert editor._pending_print_page_runs is None
     assert "cancelled" in editor.status_message
 
 

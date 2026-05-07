@@ -149,25 +149,63 @@ class PrintPreview:
     
     def generate_preview_with_border(self, page_num: int) -> List[str]:
         """Generate preview with a border around it.
-        
+
         Args:
             page_num: The page number to preview (0-indexed).
-            
+
         Returns:
             List of strings representing the bordered preview.
         """
         preview = self.generate_preview(page_num)
         if not preview:
             return []
-        
+
         # Calculate preview width
         preview_width = (self.page_width + 1) // 2
-        
+
         # Add border
         bordered = []
         bordered.append("┌" + "─" * preview_width + "┐")
         for line in preview:
             bordered.append("│" + line + "│")
         bordered.append("└" + "─" * preview_width + "┘")
-        
+
+        return bordered
+
+    def _blank_preview_lines(self) -> List[str]:
+        """Return 33 blank preview lines, one half-sheet wide."""
+        width = (self.page_width + 1) // 2
+        return [" " * width] * 33
+
+    def generate_sheet_preview(self, left_page_idx: int, right_page_idx: int) -> List[str]:
+        """Generate a landscape-sheet preview with two source pages side by side.
+
+        Either index may be out of range to render a blank half (used for
+        booklet padding). The returned lines are roughly twice as wide as
+        ``generate_preview`` output.
+        """
+        left = self.generate_preview(left_page_idx) or self._blank_preview_lines()
+        right = self.generate_preview(right_page_idx) or self._blank_preview_lines()
+        return [left_line + right_line for left_line, right_line in zip(left, right)]
+
+    def generate_sheet_preview_with_border(
+        self, left_page_idx: int, right_page_idx: int
+    ) -> List[str]:
+        """Sheet preview with a border and a vertical fold-line in the middle."""
+        sheet = self.generate_sheet_preview(left_page_idx, right_page_idx)
+        if not sheet:
+            return []
+
+        half_width = (self.page_width + 1) // 2
+        full_width = half_width * 2
+
+        bordered = []
+        # Top border with a downward tick at the fold
+        bordered.append("┌" + "─" * half_width + "┬" + "─" * half_width + "┐")
+        for line in sheet:
+            # Insert no extra column at the fold; the fold sits between halves
+            left_half = line[:half_width]
+            right_half = line[half_width:full_width]
+            bordered.append("│" + left_half + "│" + right_half + "│")
+        bordered.append("└" + "─" * half_width + "┴" + "─" * half_width + "┘")
         return bordered

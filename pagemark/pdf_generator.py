@@ -8,10 +8,11 @@ supporting both built-in PDF fonts (Courier) and custom TrueType fonts
 import os
 from typing import List, Optional
 from reportlab.pdfgen import canvas
-from reportlab.lib.pagesizes import letter
+from reportlab.lib.pagesizes import letter, landscape
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.pdfbase.pdfmetrics import registerFont, Font, EmbeddedType1Face
+from .booklet import imposition_order, pad_to_multiple_of_4
 from .font_config import get_font_config
 
 
@@ -143,113 +144,201 @@ class PDFGenerator:
         except Exception as e:
             raise FontLoadError(f"Could not register Prestige Elite Std font: {e}")
         
-    def generate_pdf(self, pages: List[List[str]], page_styles: list[list[object]] | None = None) -> bytes:
+    def generate_pdf(
+        self,
+        pages: List[List[str]],
+        page_styles: list[list[object]] | None = None,
+        booklet: bool = False,
+    ) -> bytes:
         """Generate PDF from formatted pages.
 
         Args:
-            pages: List of pages, each containing 66 lines of 85 chars.
-            page_styles: Optional per-line style masks for the 65-col text area.
-            
+            pages: List of source pages, each containing 66 lines.
+            page_styles: Optional per-line style runs aligned to ``pages``.
+            booklet: When True, lay out as a saddle-stitched booklet on
+                landscape letter sheets, two source pages per side, with
+                imposition order so the folded result reads in page order.
+
         Returns:
             Complete PDF document as bytes.
         """
         # Reset unprintable tracking for this generation
         self.unprintable_chars = set()
         self.has_unprintable = False
+
+        if booklet:
+            return self._generate_booklet_pdf(pages, page_styles)
+        return self._generate_portrait_pdf(pages, page_styles)
+
+    def _generate_portrait_pdf(
+        self,
+        pages: List[List[str]],
+        page_styles: list[list[object]] | None,
+    ) -> bytes:
+        """Standard one-page-per-sheet portrait letter PDF."""
         import io
         pdf_buffer = io.BytesIO()
-        
-        # Create PDF canvas
         c = canvas.Canvas(pdf_buffer, pagesize=letter)
-        
-        # Process each page
+
         for page_num, page in enumerate(pages, 1):
-            # Starting Y position matches PostScript exactly
-            # PostScript uses: "0 11 1 6 div sub inch moveto" then "showline" moves down
-            y_position = self.starting_y
-            
-            # Process each line on the page
-            for li, line in enumerate(page):
-                runs = None
-                # page_styles parameter represents styled runs
-                if page_styles and page_num-1 < len(page_styles) and li < len(page_styles[page_num-1]):
-                    runs = page_styles[page_num-1][li]
-                
-                if not runs:
-                    # Simple unstyled line
-                    c.setFont(self.font_name, self.font_size)
-                    # Convert line to handle encoding
-                    safe_line = self._make_pdf_safe(line)
-                    c.drawString(self.left_margin, y_position, safe_line)
-                    # Move down for next line (like PostScript's showline)
-                    y_position -= self.line_height
-                else:
-                    # Styled drawing: interleave unstyled text with styled runs
-                    x_position = self.left_margin
-                    current_col = 0
-                    
-                    # Calculate character width for the font at this size
-                    # All configured fonts are monospace, all chars same width
-                    c.setFont(self.font_name, self.font_size)
-                    char_width = c.stringWidth("X", self.font_name, self.font_size)
-                    
-                    # Ensure runs are sorted by start position
-                    runs_sorted = sorted(runs, key=lambda r: r[0])
-                    
-                    for (start_x, seg_text, flags) in runs_sorted:
-                        bold = bool(flags & 1)
-                        underline = bool(flags & 2)
-                        
-                        # Draw any unstyled gap text before this run
-                        if start_x > current_col:
-                            gap_text = line[current_col:start_x]
-                            if gap_text:
-                                c.setFont(self.font_name, self.font_size)
-                                safe_gap = self._make_pdf_safe(gap_text)
-                                c.drawString(x_position, y_position, safe_gap)
-                                x_position += len(gap_text) * char_width
-                            current_col = start_x
-                        
-                        # Set font for styled segment
-                        if bold:
-                            c.setFont(self.font_name_bold, self.font_size)
-                        else:
-                            c.setFont(self.font_name, self.font_size)
-                        
-                        # Draw the styled text
-                        safe_seg = self._make_pdf_safe(seg_text)
-                        text_start_x = x_position
-                        c.drawString(x_position, y_position, safe_seg)
-                        text_width = len(seg_text) * char_width
-                        
-                        # Draw underline if needed
-                        if underline:
-                            c.line(text_start_x, y_position - 2, 
-                                  text_start_x + text_width, y_position - 2)
-                        
-                        x_position += text_width
-                        current_col = start_x + len(seg_text)
-                    
-                    # Draw any trailing unstyled text
-                    if current_col < len(line):
-                        tail_text = line[current_col:]
-                        if tail_text:
-                            c.setFont(self.font_name, self.font_size)
-                            safe_tail = self._make_pdf_safe(tail_text)
-                            c.drawString(x_position, y_position, safe_tail)
-                    
-                    # Move down for next line (like PostScript's showline)
-                    y_position -= self.line_height
-            
-            # End the page
+            runs_for_page = (
+                page_styles[page_num - 1]
+                if page_styles and page_num - 1 < len(page_styles)
+                else None
+            )
+            self._render_source_page(c, page, runs_for_page)
             c.showPage()
-        
-        # Save the PDF
+
         c.save()
-        
-        # Get PDF bytes
         pdf_buffer.seek(0)
         return pdf_buffer.read()
+
+    def _generate_booklet_pdf(
+        self,
+        pages: List[List[str]],
+        page_styles: list[list[object]] | None,
+    ) -> bytes:
+        """Saddle-stitched booklet on landscape letter sheets.
+
+        Each source page (intrinsically 8.5x11" portrait at 612x792 pt) is
+        scaled proportionally to fit the half-sheet width (5.5") and placed
+        side-by-side on a landscape letter sheet (11x8.5"). With the imposition
+        order from ``booklet.imposition_order``, the resulting stack of duplex
+        sheets folds along its vertical center to read in natural page order.
+        """
+        import io
+        pdf_buffer = io.BytesIO()
+
+        n = len(pages)
+        if n == 0:
+            # Match the empty-document behavior of the portrait path.
+            c = canvas.Canvas(pdf_buffer, pagesize=landscape(letter))
+            c.save()
+            pdf_buffer.seek(0)
+            return pdf_buffer.read()
+
+        padded_n = pad_to_multiple_of_4(n)
+        sides = imposition_order(padded_n)
+
+        # Landscape letter: 792 pt wide, 612 pt tall
+        sheet_w, sheet_h = landscape(letter)
+        half_w = sheet_w / 2.0  # 396 pt = 5.5"
+        # Source page is exactly 8.5x11" (612x792 pt)
+        src_w, src_h = 612.0, 792.0
+        scale = half_w / src_w  # ~0.6471
+        scaled_h = src_h * scale  # ~512.6 pt = ~7.12"
+        y_offset = (sheet_h - scaled_h) / 2.0  # vertically centered, ~49.7 pt
+
+        c = canvas.Canvas(pdf_buffer, pagesize=landscape(letter))
+
+        for left_idx, right_idx in sides:
+            self._draw_imposed_half(c, pages, page_styles, left_idx,
+                                     x=0.0, y=y_offset, scale=scale)
+            self._draw_imposed_half(c, pages, page_styles, right_idx,
+                                     x=half_w, y=y_offset, scale=scale)
+            c.showPage()
+
+        c.save()
+        pdf_buffer.seek(0)
+        return pdf_buffer.read()
+
+    def _draw_imposed_half(
+        self,
+        c: canvas.Canvas,
+        pages: List[List[str]],
+        page_styles: list[list[object]] | None,
+        page_idx: int,
+        x: float,
+        y: float,
+        scale: float,
+    ) -> None:
+        """Render one source page (or nothing for padding slots) onto a half-sheet."""
+        if page_idx >= len(pages):
+            return  # padded blank
+        c.saveState()
+        c.translate(x, y)
+        c.scale(scale, scale)
+        runs_for_page = (
+            page_styles[page_idx]
+            if page_styles and page_idx < len(page_styles)
+            else None
+        )
+        self._render_source_page(c, pages[page_idx], runs_for_page)
+        c.restoreState()
+
+    def _render_source_page(
+        self,
+        c: canvas.Canvas,
+        page: List[str],
+        page_runs: Optional[list],
+    ) -> None:
+        """Draw one source page into ``c`` at its current transform.
+
+        Uses source coordinates (origin at the page's bottom-left, 612x792 pt).
+        Caller is responsible for ``saveState``/``translate``/``scale`` if the
+        page is to land somewhere other than the canvas origin.
+        """
+        # Starting Y position matches the original PostScript output:
+        # "0 11 1 6 div sub inch moveto" -> 11*72 - 72/6 = 780.
+        y_position = self.starting_y
+
+        for li, line in enumerate(page):
+            runs = (
+                page_runs[li]
+                if page_runs and li < len(page_runs)
+                else None
+            )
+
+            if not runs:
+                c.setFont(self.font_name, self.font_size)
+                safe_line = self._make_pdf_safe(line)
+                c.drawString(self.left_margin, y_position, safe_line)
+            else:
+                # Interleave unstyled gaps with styled runs.
+                x_position = self.left_margin
+                current_col = 0
+
+                # All supported fonts are monospace; one width per font.
+                c.setFont(self.font_name, self.font_size)
+                char_width = c.stringWidth("X", self.font_name, self.font_size)
+
+                for (start_x, seg_text, flags) in sorted(runs, key=lambda r: r[0]):
+                    bold = bool(flags & 1)
+                    underline = bool(flags & 2)
+
+                    if start_x > current_col:
+                        gap_text = line[current_col:start_x]
+                        if gap_text:
+                            c.setFont(self.font_name, self.font_size)
+                            safe_gap = self._make_pdf_safe(gap_text)
+                            c.drawString(x_position, y_position, safe_gap)
+                            x_position += len(gap_text) * char_width
+                        current_col = start_x
+
+                    c.setFont(
+                        self.font_name_bold if bold else self.font_name,
+                        self.font_size,
+                    )
+                    safe_seg = self._make_pdf_safe(seg_text)
+                    text_start_x = x_position
+                    c.drawString(x_position, y_position, safe_seg)
+                    text_width = len(seg_text) * char_width
+
+                    if underline:
+                        c.line(text_start_x, y_position - 2,
+                               text_start_x + text_width, y_position - 2)
+
+                    x_position += text_width
+                    current_col = start_x + len(seg_text)
+
+                if current_col < len(line):
+                    tail_text = line[current_col:]
+                    if tail_text:
+                        c.setFont(self.font_name, self.font_size)
+                        safe_tail = self._make_pdf_safe(tail_text)
+                        c.drawString(x_position, y_position, safe_tail)
+
+            y_position -= self.line_height
     
     def _make_pdf_safe(self, text: str) -> str:
         """Convert text to be safe for PDF output with Courier font.

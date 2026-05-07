@@ -1,11 +1,13 @@
 """Print dialog UI for document printing."""
 
-from typing import List, Optional, Tuple, NamedTuple
+from typing import List, Optional, NamedTuple, Tuple
 from enum import Enum
 import blessed
 import os
 import logging
+import textwrap
 
+from .booklet import imposition_order, pad_to_multiple_of_4
 from .print_formatter import PrintFormatter
 from .print_preview import PrintPreview
 from .printer_utils import PrinterManager
@@ -32,11 +34,19 @@ class PrintOptions(NamedTuple):
     double_sided: bool = False
     pdf_filename: Optional[str] = None
     font_name: str = "Courier"  # Default to Courier
+    booklet: bool = False  # Saddle-stitched booklet imposition
 
 
 class PrintDialog:
     """Interactive print dialog for document printing."""
-    
+
+    # Layout constants
+    DEFAULT_DIALOG_WIDTH = 110  # cap for the single-page layout
+    DIALOG_HEIGHT = 38
+    PREVIEW_BORDERED_HEIGHT = 35  # 33 quadrant rows + 2 border rows
+    OPTIONS_COLUMN_WIDTH = 30  # reserved for the right-side options column
+    PREVIEW_OPTIONS_GAP = 5  # blank columns between preview and options
+
     def __init__(self, model: TextModel, terminal: Optional[TerminalInterface], double_spacing: bool = False):
         """Initialize print dialog.
         
@@ -53,10 +63,13 @@ class PrintDialog:
         # Dialog state
         self.current_page = 0
         self.selected_output = 0  # Index in output options list
-        
+
         # Restore double-sided setting from session
         self.double_sided = self.session.get(SessionKeys.DUPLEX_PRINTING, True)
-        
+
+        # Restore booklet setting from session
+        self.booklet = bool(self.session.get(SessionKeys.BOOKLET, False))
+
         # Restore or initialize spacing
         self.double_spacing = self.session.get(SessionKeys.DOUBLE_SPACING, double_spacing)
         
@@ -86,10 +99,15 @@ class PrintDialog:
             font_config=self.font_config
         )
         self.pages = self.formatter.format_pages()
-        
+
+        # Booklet imposition order: list of (left_idx, right_idx) per sheet side.
+        # Empty in single-page mode; recomputed when booklet toggles or pages change.
+        self.imposed_sides: List[Tuple[int, int]] = []
+        self._compute_imposed_sides()
+
         # Create preview generator
         self._create_preview()
-        
+
         # Build output options list (printers + PDF File)
         self.output_options = self._build_output_list()
         
@@ -172,6 +190,30 @@ class PrintDialog:
         """Create or recreate the print preview with current settings."""
         page_width = self._get_preview_width()
         self.preview = PrintPreview(self.pages, page_width)
+
+    def _compute_imposed_sides(self) -> None:
+        """Update ``self.imposed_sides`` based on booklet state and page count.
+
+        Empty when booklet is off or there are no pages.
+        """
+        if not self.booklet or not self.pages:
+            self.imposed_sides = []
+            return
+        padded_n = pad_to_multiple_of_4(len(self.pages))
+        self.imposed_sides = imposition_order(padded_n)
+
+    def _navigation_count(self) -> int:
+        """Number of items the user can navigate via PgUp/PgDn."""
+        return len(self.imposed_sides) if self.booklet else len(self.pages)
+
+    def _required_dialog_width(self) -> int:
+        """Minimum dialog width needed to render preview + options column."""
+        if self.booklet:
+            half_preview = (self.font_config.full_page_width + 1) // 2
+            preview_width = 1 + half_preview + 1 + half_preview + 1  # borders + fold
+        else:
+            preview_width = ((self.font_config.full_page_width + 1) // 2) + 2
+        return preview_width + self.PREVIEW_OPTIONS_GAP + self.OPTIONS_COLUMN_WIDTH
     
     def show(self) -> PrintOptions:
         """Display the print dialog and handle user interaction.
@@ -224,11 +266,22 @@ class PrintDialog:
                     self.session.set(SessionKeys.PRINTER_NAME, selected_option)
                     continue
 
-                # Toggle double-sided: 'D'
+                # Toggle double-sided: 'D' (no-op when booklet on -- duplex is implicit)
                 if ev.key_type == KeyType.REGULAR and ev.value in ('d', 'D'):
+                    if self.booklet:
+                        continue
                     self.double_sided = not self.double_sided
                     # Save duplex setting to session
                     self.session.set(SessionKeys.DUPLEX_PRINTING, self.double_sided)
+                    continue
+
+                # Toggle booklet: 'B'
+                if ev.key_type == KeyType.REGULAR and ev.value in ('b', 'B'):
+                    self.booklet = not self.booklet
+                    self.session.set(SessionKeys.BOOKLET, self.booklet)
+                    self._compute_imposed_sides()
+                    # Reset navigation when switching modes (item indices differ)
+                    self.current_page = 0
                     continue
 
                 # Toggle spacing: 'S'
@@ -252,13 +305,13 @@ class PrintDialog:
                         self._reformat_pages()
                     continue
 
-                # Page navigation: PageUp/PageDown
+                # Page (or sheet-side, in booklet mode) navigation
                 if ev.key_type == KeyType.SPECIAL and ev.value in ('page_up', 'pageup'):
                     if self.current_page > 0:
                         self.current_page -= 1
                     continue
                 if ev.key_type == KeyType.SPECIAL and ev.value in ('page_down', 'pagedown'):
-                    if self.current_page < len(self.pages) - 1:
+                    if self.current_page < self._navigation_count() - 1:
                         self.current_page += 1
                     continue
                         
@@ -270,33 +323,87 @@ class PrintDialog:
     def _render(self):
         """Render the print dialog."""
         term = self.terminal.term
-        
+
         # Clear screen
         print(term.home + term.clear, end='')
-        
-        # Calculate layout (wider to accommodate long printer names)
-        dialog_width = min(110, term.width - 4)  # Increased for wider preview
-        dialog_height = 38  # Slightly less height without borders
+
+        # Dialog width: in booklet mode the preview is twice as wide, so
+        # let the dialog grow beyond the single-page cap when the terminal
+        # has room. When it doesn't, fall back to a width that fits.
+        needed = self._required_dialog_width()
+        cap = max(self.DEFAULT_DIALOG_WIDTH, needed) if self.booklet else self.DEFAULT_DIALOG_WIDTH
+        dialog_width = min(cap, term.width - 4)
         left_margin = max(2, (term.width - dialog_width) // 2)
-        top_margin = max(1, (term.height - dialog_height) // 2)
-        
+        top_margin = max(1, (term.height - self.DIALOG_HEIGHT) // 2)
+
         # Draw title (no border)
         self._draw_title(left_margin, top_margin, dialog_width)
-        
-        # Draw page preview on the left
+
+        # Reserve space for the options column on the right; whatever remains
+        # is the preview area (which may shrink for the narrow-terminal fallback).
+        preview_top = top_margin + 2
         preview_left = left_margin
-        preview_top = top_margin + 2  # After title
-        preview_width = self._draw_preview(preview_left, preview_top)
-        
-        # Draw options on the right with dynamic spacing based on preview width
-        # Preview width + 2 for border + 3 for spacing
-        options_left = preview_left + preview_width + 5
+        max_preview_width = max(
+            10,
+            dialog_width - self.OPTIONS_COLUMN_WIDTH - self.PREVIEW_OPTIONS_GAP,
+        )
+
+        if self.booklet and term.width < needed:
+            preview_width = self._draw_preview_too_narrow(
+                preview_left, preview_top, needed, max_preview_width
+            )
+        else:
+            preview_width = self._draw_preview(preview_left, preview_top)
+
+        # Position options just right of the actual preview.
+        options_left = preview_left + preview_width + self.PREVIEW_OPTIONS_GAP
         options_top = top_margin + 2
-        options_max_width = dialog_width - (preview_width + 5)  # Remaining width for options
+        options_max_width = max(
+            self.OPTIONS_COLUMN_WIDTH,
+            left_margin + dialog_width - options_left,
+        )
         self._draw_options(options_left, options_top, options_max_width)
-        
+
         # Flush output
         print('', end='', flush=True)
+
+    def _draw_preview_too_narrow(
+        self, left: int, top: int, needed: int, max_width: int
+    ) -> int:
+        """Render a placeholder when the terminal is too narrow for booklet preview.
+
+        Wraps the message into the available width so the rest of the dialog
+        (including the [B]ooklet toggle) remains on-screen and operable.
+
+        Returns the width occupied (border + content + border).
+        """
+        term = self.terminal.term
+        # Inner width: leave room for the two side borders. Cap so the box
+        # never overwhelms the dialog -- the user only needs enough text to
+        # know what to do.
+        inner = max(10, min(max_width - 2, 30))
+        width = inner + 2  # plus left/right border columns
+
+        msg = (
+            f"Booklet preview needs {needed}+ cols. "
+            "Press B to disable booklet."
+        )
+        msg_lines = textwrap.wrap(msg, width=inner - 2) or [msg[: inner - 2]]
+
+        # Match the height of a real bordered preview so the layout below
+        # (page-info row, options) lines up identically in both modes.
+        height = self.PREVIEW_BORDERED_HEIGHT
+
+        print(term.move(top, left) + "┌" + "─" * inner + "┐", end='')
+        for r in range(1, height - 1):
+            msg_idx = r - 1
+            if 0 <= msg_idx < len(msg_lines):
+                content = " " + msg_lines[msg_idx].ljust(inner - 1)
+            else:
+                content = " " * inner
+            print(term.move(top + r, left) + "│" + content + "│", end='')
+        print(term.move(top + height - 1, left) + "└" + "─" * inner + "┘", end='')
+        return width
     
     def _draw_title(self, left: int, top: int, width: int):
         """Draw the dialog title without borders."""
@@ -308,34 +415,54 @@ class PrintDialog:
         print(term.move(top, title_pos) + term.bold + title + term.normal, end='')
     
     def _draw_preview(self, left: int, top: int) -> int:
-        """Draw the page preview.
-        
+        """Draw the page (or booklet sheet) preview.
+
         Returns:
             Width of the preview including border.
         """
         term = self.terminal.term
-        
-        # Get preview with border
-        preview_lines = self.preview.generate_preview_with_border(self.current_page)
-        
-        # Calculate preview width (including borders)
+
+        if not self.pages:
+            preview_lines = []
+            page_text = "No content"
+        elif self.booklet and self.imposed_sides:
+            sheet_idx = min(self.current_page, len(self.imposed_sides) - 1)
+            left_idx, right_idx = self.imposed_sides[sheet_idx]
+            preview_lines = self.preview.generate_sheet_preview_with_border(left_idx, right_idx)
+            page_text = self._sheet_label(sheet_idx, left_idx, right_idx)
+        else:
+            preview_lines = self.preview.generate_preview_with_border(self.current_page)
+            page_text = f"Page {self.current_page + 1}/{len(self.pages)}"
+
         preview_width = len(preview_lines[0]) if preview_lines else 45
-        
-        # Draw preview
+
         for i, line in enumerate(preview_lines):
             print(term.move(top + i, left) + line, end='')
-        
-        # Draw page info and navigation help at bottom of preview
-        page_text = f"Page {self.current_page + 1}/{len(self.pages)}"
+
         nav_text = "PgUp/PgDn: Navigate"
-        
-        # Position at bottom of preview box
         info_y = top + len(preview_lines)
         print(term.move(info_y, left) + page_text, end='')
-        # Position nav text at right edge of preview
         print(term.move(info_y, left + preview_width - len(nav_text) - 2) + nav_text, end='')
-        
+
         return preview_width
+
+    def _sheet_label(self, sheet_idx: int, left_page_idx: int, right_page_idx: int) -> str:
+        """Format the bottom-of-preview label in booklet mode.
+
+        Sheet sides are ordered front_1, back_1, front_2, back_2, ...
+        """
+        n_real = len(self.pages)
+        sheet_num = sheet_idx // 2 + 1
+        side = "front" if sheet_idx % 2 == 0 else "back"
+        n_sheets = max(1, len(self.imposed_sides) // 2)
+
+        def page_label(idx: int) -> str:
+            return str(idx + 1) if idx < n_real else "blank"
+
+        return (
+            f"Sheet {sheet_num}/{n_sheets} {side}: pp. "
+            f"{page_label(left_page_idx)}, {page_label(right_page_idx)}"
+        )
     
     def _draw_options(self, left: int, top: int, max_width: int):
         """Draw the print options.
@@ -363,14 +490,22 @@ class PrintDialog:
             y += 1
         
         y += 1
-        
-        # Double-sided option (only if printing to printer)
-        if self.selected_output < len(self.output_options) - 1:  # Not PDF File
+
+        # Double-sided option: only when printing to a printer AND booklet is off
+        # (booklet implies short-edge duplex, so the toggle doesn't apply).
+        # Reserve the row in either case so toggling the option doesn't shift
+        # the items below it.
+        if (self.selected_output < len(self.output_options) - 1
+                and not self.booklet):
             double_text = "YES" if self.double_sided else "NO"
             print(term.move(y, left) + f"[D]ouble-sided: {double_text}", end='')
-            y += 2
-        else:
-            y += 2
+        y += 2
+
+        # Booklet option
+        booklet_text = "ON" if self.booklet else "OFF"
+        print(term.move(y, left) + f"[B]ooklet: {booklet_text}", end='')
+        y += 2
+
         # Spacing option
         spacing_text = "DOUBLE" if self.double_spacing else "SINGLE"
         print(term.move(y, left) + f"[S]pacing: {spacing_text}", end='')
@@ -399,7 +534,7 @@ class PrintDialog:
     
     def _reformat_pages(self) -> None:
         """Reformat pages with current settings.
-        
+
         This method is called when font or spacing changes.
         """
         styles = getattr(self.model, 'styles', None)
@@ -411,11 +546,13 @@ class PrintDialog:
             font_config=self.font_config
         )
         self.pages = self.formatter.format_pages()
+        self._compute_imposed_sides()
         self._create_preview()
-        
-        # Clamp current page if needed
-        if self.current_page >= len(self.pages):
-            self.current_page = max(0, len(self.pages) - 1)
+
+        # Clamp current navigation index to whatever's now valid
+        nav_count = self._navigation_count()
+        if self.current_page >= nav_count:
+            self.current_page = max(0, nav_count - 1)
     
     def get_line_length(self) -> int:
         """Get the current line length based on selected font.
@@ -435,25 +572,28 @@ class PrintDialog:
     
     def _get_print_options(self) -> PrintOptions:
         """Get the final print options based on current selections.
-        
+
         Returns:
             PrintOptions with the current selections.
         """
         selected_option = self.output_options[self.selected_output]
         selected_font = self.available_fonts[self.selected_font_index]
-        
+
         if selected_option == "PDF File":
-            # PDF File output
             return PrintOptions(
                 action=PrintAction.SAVE_PDF,
                 pdf_filename="output.pdf",  # Default, will be prompted later
-                font_name=selected_font
+                font_name=selected_font,
+                booklet=self.booklet,
             )
         else:
-            # Printer output
+            # Booklet implies duplex (short-edge) at the printer level;
+            # surface that as double_sided=True so downstream sees it.
+            double_sided = True if self.booklet else self.double_sided
             return PrintOptions(
                 action=PrintAction.PRINT,
                 printer_name=selected_option,
-                double_sided=self.double_sided,
-                font_name=selected_font
+                double_sided=double_sided,
+                font_name=selected_font,
+                booklet=self.booklet,
             )

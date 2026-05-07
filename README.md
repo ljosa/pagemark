@@ -12,6 +12,7 @@ Pagemark is a keyboard‑driven word processor for the terminal.
  - Bold and underline
  - Print preview
  - Optional double-sided and double-spaced printing
+ - Optional booklet printing (saddle-stitch imposition, folds into half-letter)
  - Shows where a new page begins
  - Page numbers on page 2+ (always on)
  - Undo and redo

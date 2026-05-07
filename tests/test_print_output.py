@@ -242,6 +242,82 @@ def test_validate_output_path_readonly_file():
         assert "not writable" in error
 
 
+def test_print_to_printer_booklet_uses_short_edge_and_landscape():
+    """Booklet printing must request landscape and short-edge duplex."""
+    with patch("shutil.which", return_value="/usr/bin/lpr"):
+        output = PrintOutput()
+        pages = create_test_pages()
+
+        mock_result = Mock(returncode=0, stderr="")
+        with patch("subprocess.run", return_value=mock_result) as mock_run:
+            with patch("tempfile.NamedTemporaryFile"):
+                with patch("os.unlink"):
+                    success, error = output.print_to_printer(
+                        pages, "TestPrinter", double_sided=False, booklet=True
+                    )
+                    assert success
+                    args = mock_run.call_args[0][0]
+                    assert "landscape" in args
+                    assert "sides=two-sided-short-edge" in args
+                    assert "sides=two-sided-long-edge" not in args
+
+
+def test_print_to_printer_booklet_overrides_long_edge():
+    """Even if double_sided=True, booklet flag forces short-edge."""
+    with patch("shutil.which", return_value="/usr/bin/lpr"):
+        output = PrintOutput()
+        pages = create_test_pages()
+
+        mock_result = Mock(returncode=0, stderr="")
+        with patch("subprocess.run", return_value=mock_result) as mock_run:
+            with patch("tempfile.NamedTemporaryFile"):
+                with patch("os.unlink"):
+                    output.print_to_printer(
+                        pages, "TestPrinter", double_sided=True, booklet=True
+                    )
+                    args = mock_run.call_args[0][0]
+                    assert "landscape" in args
+                    assert "sides=two-sided-short-edge" in args
+                    assert "sides=two-sided-long-edge" not in args
+
+
+def test_print_to_printer_non_booklet_does_not_request_landscape():
+    """Non-booklet PDFs are portrait; don't pass -o landscape."""
+    with patch("shutil.which", return_value="/usr/bin/lpr"):
+        output = PrintOutput()
+        pages = create_test_pages()
+
+        mock_result = Mock(returncode=0, stderr="")
+        with patch("subprocess.run", return_value=mock_result) as mock_run:
+            with patch("tempfile.NamedTemporaryFile"):
+                with patch("os.unlink"):
+                    output.print_to_printer(
+                        pages, "TestPrinter", double_sided=True, booklet=False
+                    )
+                    args = mock_run.call_args[0][0]
+                    assert "landscape" not in args
+
+
+def test_save_pdf_booklet_produces_landscape():
+    """save_to_file with booklet=True produces landscape PDF pages."""
+    output = PrintOutput()
+    pages = create_test_pages()
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        out = os.path.join(temp_dir, "booklet.pdf")
+        success, error = output.save_to_file(pages, out, booklet=True)
+        assert success, error
+        with open(out, "rb") as f:
+            content = f.read()
+        # Booklet uses landscape letter (792 x 612)
+        import re
+        m = re.search(rb"/MediaBox\s*\[\s*([^\]]+)\]", content)
+        assert m
+        nums = [float(x) for x in m.group(1).split()]
+        assert nums[2] - nums[0] == 792.0
+        assert nums[3] - nums[1] == 612.0
+
+
 def test_save_to_pdf_with_extension():
     """Test saving with explicit .pdf extension."""
     output = PrintOutput()
