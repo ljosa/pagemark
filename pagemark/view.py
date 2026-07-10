@@ -161,8 +161,13 @@ class VisualLineMapper:
     def line_content_length(self, line_index: int) -> int:
         """Get the content length of a line (excluding hanging indent prefix).
 
-        This is the number of actual content characters on the line,
-        not counting the visual padding spaces added for wrapped lines.
+        This is the number of paragraph characters the line spans, not
+        counting the visual padding spaces added for wrapped lines. For a
+        line that wrapped at a space, this INCLUDES the separator space that
+        word wrap consumed — line_start + line_content_length is a wrap
+        boundary index, which line_for_char_index places on the NEXT line.
+        Callers clamping a cursor to this line must not land there (see
+        _char_index_for_desired_x).
         Note: This returns the CONTENT character count, not the visual width.
         """
         if line_index < 0 or line_index >= len(self.lines):
@@ -393,6 +398,27 @@ def render_paragraph(paragraph: str, num_columns: int) -> tuple[list[str], list[
     return (lines, cumulative_counts)
 
 
+def expand_styles_for_display(content: str, styles: list[int]) -> list[int]:
+    """Expand a per-character style slice to per-display-column styles.
+
+    Em-dashes occupy one content character but two display columns (rendered
+    as "--"), so their style flag is duplicated. Without this, every style
+    run to the right of an em-dash is shifted left by one column per dash.
+    """
+    if '—' not in content:
+        # Hot path: render() calls this per line per keystroke; a C-level
+        # scan beats the per-character loop for the overwhelmingly common
+        # dash-free line. (Callers pad short slices themselves.)
+        return styles
+    out: list[int] = []
+    for idx, ch in enumerate(content):
+        flag = styles[idx] if idx < len(styles) else 0
+        out.append(flag)
+        if ch == '—':
+            out.append(flag)
+    return out
+
+
 def get_line_mapper(paragraph: str, num_columns: int) -> VisualLineMapper:
     """Create a VisualLineMapper for a paragraph.
 
@@ -543,24 +569,33 @@ class TerminalTextView(TextView):
                 line_start_char = current_mapper.line_start(current_line_offset)
                 line_end_char = current_mapper.line_end(current_line_offset)
 
-                # Calculate selection within this line
-                sel_start = 0
-                sel_end = len(line)
                 # Get visual offset for hanging indent
                 visual_offset = current_mapper.hanging_width if current_mapper.has_hanging_indent(current_line_offset) else 0
 
+                def to_display_col(char_index: int) -> int:
+                    # Em-dashes display as two columns ("--"); count the
+                    # dashes before this index so the highlight lines up
+                    # with the expanded display line
+                    col = char_index - line_start_char
+                    col += para[line_start_char:char_index].count('—')
+                    return col + visual_offset
+
+                # Selection endpoints clamped to this line, in char space
+                sel_from = line_start_char
+                sel_to = line_end_char
                 if current_para_idx == start.paragraph_index:
-                    if start.character_index > line_start_char:
-                        sel_start = (start.character_index - line_start_char) + visual_offset
-                    else:
-                        sel_start = visual_offset
-
+                    sel_from = max(start.character_index, line_start_char)
                 if current_para_idx == end.paragraph_index:
-                    if end.character_index < line_end_char:
-                        sel_end = min(len(line), (end.character_index - line_start_char) + visual_offset)
+                    sel_to = min(end.character_index, line_end_char)
 
-                if sel_start < sel_end:
-                    selection_ranges.append((sel_start, sel_end))
+                if sel_from < sel_to:
+                    sel_start = to_display_col(sel_from)
+                    sel_end = min(len(line), to_display_col(sel_to))
+                    if sel_to >= line_end_char:
+                        # Line fully selected to its end: cover the visible
+                        # remainder (wrap separator isn't displayed)
+                        sel_end = len(line)
+                    selection_ranges.append((sel_start, sel_end) if sel_start < sel_end else None)
                 else:
                     selection_ranges.append(None)
 
@@ -575,6 +610,32 @@ class TerminalTextView(TextView):
 
         return selection_ranges
     
+    def _display_style_slice(self, para: str, st: list[int], mapper: VisualLineMapper,
+                             line_index: int, line_text: str) -> list[int]:
+        """Build the per-display-column style flags for one rendered line."""
+        start_ci = mapper.line_start(line_index)
+        end_ci = mapper.line_end(line_index)
+        # Em-dashes render as two columns; expand styles to match
+        style_slice = expand_styles_for_display(
+            para[start_ci:end_ci], st[start_ci:end_ci] if st else [])
+        # Account for hanging indent padding on wrapped lines
+        style_slice = self._adjust_style_slice_for_hanging_indent(style_slice, line_index > 0, para)
+        return (style_slice + [0] * max(0, len(line_text) - len(style_slice)))[:len(line_text)]
+
+    @staticmethod
+    def _end_char_for_line(mapper: VisualLineMapper, line_index: int) -> int:
+        """First character index past a visual line, for "cursor < end" checks.
+
+        A character index exactly at line_end() of a non-final line is a wrap
+        boundary, which line_for_char_index places at the start of the NEXT
+        visual line — outside a view that ends with this line. For the final
+        line of a paragraph, the index equal to the paragraph length is on the
+        line itself, so it must be included.
+        """
+        if line_index >= mapper.line_count - 1:
+            return mapper.line_end(line_index) + 1
+        return mapper.line_end(line_index)
+
     def render(self):
         paragraph_index = self.start_paragraph_index
         # First paragraph
@@ -586,36 +647,34 @@ class TerminalTextView(TextView):
         if self.first_paragraph_line_offset >= mapper.line_count:
             self.first_paragraph_line_offset = max(0, mapper.line_count - 1)
 
-        if self.first_paragraph_line_offset == 0:
-            start_position = CursorPosition(paragraph_index, 0)
-        else:
-            # +1 because start_position is used for "cursor >= start" comparisons
-            start_position = CursorPosition(paragraph_index, mapper.line_start(self.first_paragraph_line_offset) + 1)
+        # A character index exactly at line_start(offset) is a wrap boundary,
+        # which line_for_char_index places at the start of the first visible
+        # line, so it is inside the view ("cursor >= start" comparisons).
+        start_position = CursorPosition(paragraph_index, mapper.line_start(self.first_paragraph_line_offset))
 
         # Build lines with page breaks
         self.lines = []
         self.line_styles = []
         doc_line_start = self._get_document_line_number(paragraph_index, self.first_paragraph_line_offset)
 
-        # Add lines from first paragraph
+        # Add lines from first paragraph. Page-break rows also consume view
+        # space, so fewer than lines_wanted content lines may actually fit;
+        # track the real count for end_position and doc_lines_added.
         lines_wanted = min(mapper.line_count - self.first_paragraph_line_offset, self.num_rows)
+        content_lines_added = 0
         for i in range(lines_wanted):
             if len(self.lines) >= self.num_rows:
                 break
+            content_lines_added += 1
             doc_line = doc_line_start + i
             line_index = self.first_paragraph_line_offset + i
             # Add the actual content line
             line_text = mapper.lines[line_index]
             self.lines.append(line_text)
             # Build style line from model.styles and paragraph boundaries
-            start_ci = mapper.line_start(line_index)
-            end_ci = mapper.line_end(line_index)
             st = self.model.styles[paragraph_index] if hasattr(self.model, 'styles') else []
-            style_slice = st[start_ci:end_ci] if st else [0] * len(line_text)
-            # Account for hanging indent padding on wrapped lines
-            style_slice = self._adjust_style_slice_for_hanging_indent(style_slice, line_index > 0, para)
-            style_slice = (style_slice + [0] * max(0, len(line_text) - len(style_slice)))[:len(line_text)]
-            self.line_styles.append(style_slice)
+            self.line_styles.append(
+                self._display_style_slice(para, st, mapper, line_index, line_text))
             # Check if there's more content after this line
             has_more_content = (i < lines_wanted - 1) or (paragraph_index + 1 < len(self.model.paragraphs))
             # Add page break if needed and there's more content
@@ -626,16 +685,15 @@ class TerminalTextView(TextView):
                 self.line_styles.append([0] * self.num_columns)
 
         # Set end_position only if we have lines to display
-        if lines_wanted > 0:
-            last_line_index = self.first_paragraph_line_offset + lines_wanted - 1
-            # +1 because end_position is used for "cursor < end" comparisons
-            end_position = CursorPosition(paragraph_index, mapper.line_end(last_line_index) + 1)
+        if content_lines_added > 0:
+            last_line_index = self.first_paragraph_line_offset + content_lines_added - 1
+            end_position = CursorPosition(paragraph_index, self._end_char_for_line(mapper, last_line_index))
         else:
             # If no lines from this paragraph, set end to start
             end_position = start_position
 
         # Track total document lines processed
-        doc_lines_added = lines_wanted
+        doc_lines_added = content_lines_added
 
         # Remaining paragraphs
         while len(self.lines) < self.num_rows and paragraph_index + 1 < len(self.model.paragraphs):
@@ -651,16 +709,10 @@ class TerminalTextView(TextView):
                 line_text = mapper.lines[i]
                 self.lines.append(line_text)
                 st = self.model.styles[paragraph_index] if hasattr(self.model, 'styles') else []
-                start_ci = mapper.line_start(i)
-                end_ci = mapper.line_end(i)
-                style_slice = st[start_ci:end_ci] if st else [0] * len(line_text)
-                # Account for hanging indent padding on wrapped lines
-                style_slice = self._adjust_style_slice_for_hanging_indent(style_slice, i > 0, para)
-                style_slice = (style_slice + [0] * max(0, len(line_text) - len(style_slice)))[:len(line_text)]
-                self.line_styles.append(style_slice)
+                self.line_styles.append(
+                    self._display_style_slice(para, st, mapper, i, line_text))
                 doc_lines_added += 1
-                # +1 because end_position is used for "cursor < end" comparisons
-                end_position = CursorPosition(paragraph_index, mapper.line_end(i) + 1)
+                end_position = CursorPosition(paragraph_index, self._end_char_for_line(mapper, i))
                 # Check if there's more content after this line
                 has_more_content = (i < mapper.line_count - 1) or (paragraph_index + 1 < len(self.model.paragraphs))
                 # Add page break if needed and there's more content
@@ -674,23 +726,43 @@ class TerminalTextView(TextView):
 
         # If the cursor is outside the view, center the view on the cursor
         if self.model.cursor_position < start_position or self.model.cursor_position >= end_position:
-            if not getattr(self, '_rendering', False):
-                self._rendering = True
-                try:
-                    self.center_view_on_cursor()
-                    # Re-render after centering (recursive call)
-                    self.render()
-                finally:
-                    self._rendering = False
+            self._recenter_and_rerender()
             return
 
         self._set_visual_cursor_position()
+
+        # The cursor can still wrap visually past the last row (e.g. at the
+        # end of a line that exactly fills the width, on the bottom row).
+        # Recenter so the cursor row is actually on screen.
+        if self.visual_cursor_y >= self.num_rows:
+            if not self._recenter_and_rerender():
+                self.visual_cursor_y = self.num_rows - 1
+            return
 
         # Add empty line if cursor is at the start of a new visual line
         # This happens when text exactly fills a line and cursor is after it
         if self.visual_cursor_y == len(self.lines) and len(self.lines) < self.num_rows:
             self.lines.append("")
             self.line_styles.append([])
+
+    def _recenter_and_rerender(self) -> bool:
+        """Center the view on the cursor and re-render, guarding against
+        recursion (render calls this, and this calls render).
+
+        Returns:
+            False when already inside a recentering render, in which case
+            nothing was done and the caller must cope with the cursor
+            position as-is.
+        """
+        if getattr(self, '_rendering', False):
+            return False
+        self._rendering = True
+        try:
+            self.center_view_on_cursor()
+            self.render()
+        finally:
+            self._rendering = False
+        return True
 
     def _set_visual_cursor_position(self):
         # Set visual cursor position accounting for page break lines
@@ -711,11 +783,14 @@ class TerminalTextView(TextView):
 
         cursor_doc_line += line_index
 
-        # Calculate number of page breaks between start of view and cursor
+        # Calculate number of page breaks between start of view and cursor.
+        # A page break precedes each line_num that is a multiple of lpp, but
+        # the one preceding the view's own top line is above the view and is
+        # never rendered, so start counting at doc_line_start + 1.
         page_breaks_before = 0
         lpp = self._effective_lines_per_page()
-        for line_num in range(doc_line_start, cursor_doc_line):
-            if line_num > 0 and line_num % lpp == 0:
+        for line_num in range(doc_line_start + 1, cursor_doc_line):
+            if line_num % lpp == 0:
                 page_breaks_before += 1
 
         # Calculate visual Y position
@@ -842,12 +917,7 @@ class TerminalTextView(TextView):
         if line_within_para >= mapper.line_count:
             return
 
-        # Convert visual X to content column, clamped to line length
-        content_x = mapper.content_column_from_visual(line_within_para, desired_x)
-        content_x = min(content_x, mapper.line_content_length(line_within_para))
-
-        # Convert to character index
-        char_index = mapper.line_and_column_to_char(line_within_para, content_x)
+        char_index = self._char_index_for_desired_x(mapper, line_within_para, desired_x)
 
         # Update cursor position
         self.model.cursor_position.paragraph_index = paragraph_index
@@ -910,17 +980,29 @@ class TerminalTextView(TextView):
         self.center_view_on_cursor()
         self.render()
     
-    def _char_index_for_desired_x(self, mapper: VisualLineMapper, line_within_para: int) -> int:
-        """Calculate the character index for desired_x on a given line.
+    def _char_index_for_desired_x(self, mapper: VisualLineMapper, line_within_para: int,
+                                  desired_x: Optional[int] = None) -> int:
+        """Calculate the character index for a visual X position on a given line.
 
         This helper centralizes the logic for mapping a visual X position
-        (desired_x) to a character index, accounting for hanging indents.
+        (self.desired_x unless given explicitly) to a character index,
+        accounting for hanging indents. The result always stays on the
+        requested visual line: line_content_length() includes the separator
+        space consumed by word wrap, and landing exactly on that boundary
+        index would put the cursor on the NEXT visual line (see
+        line_for_char_index), which made vertical movement skip or stall.
         """
+        if desired_x is None:
+            desired_x = self.desired_x
         # Convert visual X to content column, clamped to line length
-        content_x = mapper.content_column_from_visual(line_within_para, self.desired_x)
+        content_x = mapper.content_column_from_visual(line_within_para, desired_x)
         content_x = min(content_x, mapper.line_content_length(line_within_para))
 
-        return mapper.line_and_column_to_char(line_within_para, content_x)
+        char_index = mapper.line_and_column_to_char(line_within_para, content_x)
+        if (char_index > mapper.line_start(line_within_para)
+                and mapper.line_for_char_index(char_index) != line_within_para):
+            char_index -= 1
+        return char_index
 
     def _move_cursor_down_in_document(self):
         """Move cursor down one line in the document and center view."""

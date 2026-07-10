@@ -8,6 +8,7 @@ output. It supports both 10-pitch (pica) and 12-pitch (elite) font configuration
 from typing import List, Tuple, Optional
 from .view import render_paragraph
 from .view import get_hanging_indent_width
+from .view import expand_styles_for_display
 from .font_config import FontConfig, get_font_config
 
 
@@ -101,7 +102,10 @@ class PrintFormatter:
                 start = 0
                 for li, line in enumerate(lines):
                     end = counts[li]
-                    slice_styles = st[start:end]
+                    # Expand to display columns: em-dashes render as "--"
+                    # (two columns for one content character/style entry)
+                    slice_styles = expand_styles_for_display(
+                        paragraph[start:end], st[start:end])
                     # Build contiguous runs for this 65-char line
                     runs: List[Tuple[int, str, int]] = []
                     if line:
