@@ -2,8 +2,6 @@
 
 import blessed
 from typing import Optional
-import sys
-import select
 
 
 class TerminalInterface:
@@ -296,19 +294,33 @@ class TerminalInterface:
             A key event object; for curtsies, a small shim with __str__.
         """
         if self._curtsies_input is not None:
-            # Use select on stdin to implement timeouts
+            # Use curtsies' own send() for timeouts: one OS read can decode
+            # several keystrokes, which curtsies buffers internally, and a
+            # select() on stdin would block while those buffered events wait
+            # (BUG-18: pasted characters arriving in delayed bursts).
             if timeout is None:
-                evt = next(self._curtsies_input)  # blocks
-                return str(evt)
+                evt = self._curtsies_input.send(None)  # type: ignore  # blocks
             else:
                 t = 0.0 if timeout == 0 else float(timeout)
-                r, _, _ = select.select([sys.stdin], [], [], t)
-                if not r:
-                    return None
-                evt = next(self._curtsies_input)
-                return str(evt)
+                evt = self._curtsies_input.send(t)  # type: ignore
+            return None if evt is None else str(evt)
         # Curtsies is required; if not initialized, return None
         return None
+
+    def has_pending_input(self) -> bool:
+        """True if curtsies holds decoded-but-undelivered input.
+
+        The editor's main loop selects on stdin; events already buffered
+        inside curtsies would not wake that select, so the loop must check
+        here before blocking.
+        """
+        inp = self._curtsies_input
+        if inp is None:
+            return False
+        return bool(getattr(inp, 'queued_events', None)
+                    or getattr(inp, 'unprocessed_bytes', None)
+                    or getattr(inp, 'queued_interrupting_events', None)
+                    or getattr(inp, 'sigints', None))
     
     @property
     def width(self):

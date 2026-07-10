@@ -66,6 +66,9 @@ class Editor:
         # Autosave state
         self._last_edit_time: float | None = None
         self._last_autosave_time: float | None = None
+        # First edit since the last (auto)save; anchors the backstop timer
+        # until an autosave has happened.
+        self._pending_edit_since: float | None = None
 
     def _handle_resize(self, signum, frame):
         """Handle terminal resize signal."""
@@ -81,6 +84,21 @@ class Editor:
         # Write to pipe to wake up select()
         os.write(self._resize_pipe_w, b'C')
 
+    def _autosave_is_current(self) -> bool:
+        """True when an autosave exists and nothing was edited after it."""
+        return (
+            self._last_autosave_time is not None
+            and (self._last_edit_time is None
+                 or self._last_edit_time <= self._last_autosave_time)
+        )
+
+    def _backstop_anchor(self) -> float | None:
+        """The time the backstop counts from: the last autosave, or the first
+        unsaved edit when nothing has been autosaved yet."""
+        if self._last_autosave_time is not None:
+            return self._last_autosave_time
+        return self._pending_edit_since
+
     def _calculate_autosave_timeout(self) -> float | None:
         """Calculate timeout for select() based on autosave timing.
 
@@ -90,32 +108,36 @@ class Editor:
         # No autosave needed if document isn't modified or has no filename
         if not self.modified or not self.filename:
             return None
+        if self._autosave_is_current():
+            return None
 
         now = time.monotonic()
 
-        # Debounce: wait until 10s after last edit
+        # Wake up at whichever comes first: the debounce (10s after the last
+        # edit) or the backstop (5 min after the last autosave / first unsaved
+        # edit). Capping by the backstop is what guarantees an autosave even
+        # while the user types continuously.
+        due_times = []
         if self._last_edit_time is not None:
-            debounce_remaining = (
-                self._last_edit_time + EditorConstants.AUTOSAVE_DEBOUNCE_SECONDS
-            ) - now
-            if debounce_remaining > 0:
-                return debounce_remaining
+            due_times.append(self._last_edit_time + EditorConstants.AUTOSAVE_DEBOUNCE_SECONDS)
+        anchor = self._backstop_anchor()
+        if anchor is not None:
+            due_times.append(anchor + EditorConstants.AUTOSAVE_BACKSTOP_SECONDS)
 
-        # Backstop: if we've never autosaved, or 5 min since last autosave
-        if self._last_autosave_time is not None:
-            backstop_remaining = (
-                self._last_autosave_time + EditorConstants.AUTOSAVE_BACKSTOP_SECONDS
-            ) - now
-            if backstop_remaining > 0:
-                return backstop_remaining
+        if not due_times:
+            # Modified without a recorded edit (e.g. swap-file recovery):
+            # save soon.
+            return 0.1
 
-        # Time to save - small timeout to trigger save soon
-        return 0.1
+        return max(min(due_times) - now, 0.1)
 
     def _maybe_autosave(self) -> None:
         """Perform autosave if conditions are met."""
         # No autosave if document isn't modified or has no filename
         if not self.modified or not self.filename:
+            return
+        # Nothing new to write since the last autosave
+        if self._autosave_is_current():
             return
 
         now = time.monotonic()
@@ -126,16 +148,21 @@ class Editor:
             and now - self._last_edit_time >= EditorConstants.AUTOSAVE_DEBOUNCE_SECONDS
         )
 
-        # Check backstop condition: 5 min since last autosave (or never autosaved)
+        # Check backstop condition: 5 min since last autosave (or, if never
+        # autosaved, since the first unsaved edit). If neither time is known
+        # the document is modified without any recorded edit (e.g. swap-file
+        # recovery), so save right away.
+        anchor = self._backstop_anchor()
         backstop_met = (
-            self._last_autosave_time is None
-            or now - self._last_autosave_time >= EditorConstants.AUTOSAVE_BACKSTOP_SECONDS
+            anchor is None
+            or now - anchor >= EditorConstants.AUTOSAVE_BACKSTOP_SECONDS
         )
 
         if debounce_met or backstop_met:
             content = self.model.to_overstrike_text()
             if write_swap_file(self.filename, content):
                 self._last_autosave_time = now
+                self._pending_edit_since = None
 
     def run(self):
         """Run the main editor loop."""
@@ -196,13 +223,15 @@ class Editor:
 
                     # Wait for input on stdin or resize pipe
                     # Use file descriptor 0 for stdin to work in all environments
-                    ready, _, _ = select.select([0, self._resize_pipe_r], [], [], timeout)
+                    # Don't block in select() while curtsies still holds
+                    # decoded-but-undelivered events (e.g. from a paste):
+                    # those never show up on the stdin file descriptor.
+                    if self.terminal.has_pending_input():
+                        ready = [0]
+                    else:
+                        ready, _, _ = select.select([0, self._resize_pipe_r], [], [], timeout)
 
-                    if not ready:
-                        # Timeout - check autosave
-                        self._maybe_autosave()
-                        # No UI change needed from autosave
-                    elif self._resize_pipe_r in ready:
+                    if self._resize_pipe_r in ready:
                         # Clear the pipe (resize wake)
                         os.read(self._resize_pipe_r, 1024)
                         if self.running:
@@ -217,9 +246,15 @@ class Editor:
                             # Process key and schedule a draw; diff'ing will minimize output
                             was_modified = self._handle_key_event(key_event)
                             need_draw = True
-                            # Track edit time for autosave debounce
+                            # Track edit times for autosave debounce/backstop
                             if was_modified:
                                 self._last_edit_time = time.monotonic()
+                                if self._pending_edit_since is None:
+                                    self._pending_edit_since = self._last_edit_time
+
+                    # Check autosave on every wakeup, not just on select()
+                    # timeouts: continuous typing must not starve the backstop.
+                    self._maybe_autosave()
 
                 # Restore terminal settings before exiting cbreak
                 if old_settings:
@@ -332,6 +367,12 @@ class Editor:
             self.model.selection_end = CursorPosition(*snap.selection_end)
         # Modified flag reflects that buffer differs from last saved content
         self.modified = True
+        # Undo/redo change the buffer without a key event, so record the edit
+        # here; otherwise autosave considers the swap file current and never
+        # writes the restored state.
+        self._last_edit_time = time.monotonic()
+        if self._pending_edit_since is None:
+            self._pending_edit_since = self._last_edit_time
         self.view.render()
 
     def _draw_error(self):
@@ -721,6 +762,7 @@ class Editor:
             # Clean up swap file after successful save
             delete_swap_file(filename)
             self._last_autosave_time = None
+            self._pending_edit_since = None
             return True
 
         except PermissionError:
@@ -845,10 +887,14 @@ class Editor:
         if key_event.key_type == KeyType.REGULAR:
             char = key_event.value.lower()
             if char == 'y':
-                # Save and quit
+                # Save and quit — but only quit if the save succeeded, so a
+                # failed save (permissions, disk full) doesn't lose the buffer.
                 if self.filename:
-                    self.save_file(self.filename)
-                    self.running = False
+                    if self.save_file(self.filename):
+                        self.running = False
+                    else:
+                        # Stay in the editor so the error message is visible
+                        self.prompt_mode = None
                 else:
                     # Need filename first
                     self.prompt_mode = 'save_filename_quit'

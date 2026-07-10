@@ -191,21 +191,34 @@ class TestCalculateAutosaveTimeout:
         assert result is not None
         assert 0 < result <= EditorConstants.AUTOSAVE_DEBOUNCE_SECONDS
 
-    def test_backstop_timeout_calculation(self, clean_session):
-        """Test backstop timeout when debounce has passed."""
+    def test_no_timeout_when_autosave_is_current(self, clean_session):
+        """No wakeup is needed when nothing was edited after the autosave."""
         editor = Editor()
         editor.modified = True
         editor.filename = "test.txt"
-        # Set last edit time well in the past
+        # Last edit predates the last autosave: the swap file is current.
         editor._last_edit_time = time.monotonic() - 100
-        # Set last autosave recently
         editor._last_autosave_time = time.monotonic()
 
         result = editor._calculate_autosave_timeout()
 
-        # Should be close to AUTOSAVE_BACKSTOP_SECONDS
+        assert result is None
+
+    def test_backstop_timeout_caps_debounce(self, clean_session):
+        """BUG-17: an imminent backstop must cap the debounce timeout, or
+        continuous typing (edits < 10s apart) would postpone autosave forever."""
+        editor = Editor()
+        editor.modified = True
+        editor.filename = "test.txt"
+        now = time.monotonic()
+        editor._last_edit_time = now - 1  # just typed
+        editor._last_autosave_time = now - EditorConstants.AUTOSAVE_BACKSTOP_SECONDS + 2
+
+        result = editor._calculate_autosave_timeout()
+
+        # Backstop due in ~2s, debounce in ~9s: the backstop must win.
         assert result is not None
-        assert 0 < result <= EditorConstants.AUTOSAVE_BACKSTOP_SECONDS
+        assert result <= 2.1
 
     def test_immediate_save_when_conditions_met(self, clean_session):
         """Test returns small timeout when ready to save."""
