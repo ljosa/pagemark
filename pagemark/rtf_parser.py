@@ -1,252 +1,276 @@
 """RTF parsing utilities for clipboard integration."""
 
 from typing import Tuple, Optional, List
-import re
 
 # Maximum RTF size to parse (10MB) to prevent DoS attacks
 MAX_RTF_SIZE = 10 * 1024 * 1024  # 10MB
 
+# Destination groups whose text content is not document text.
+# Any group starting with \* is likewise skipped. Note that \field is NOT
+# skipped: its \*\fldinst instruction part is starred (skipped anyway) while
+# its {\fldrslt ...} part holds the visible text of hyperlinks etc.
+_SKIP_DESTINATIONS = frozenset({
+    'fonttbl', 'colortbl', 'expandedcolortbl', 'stylesheet', 'info',
+    'pict', 'themedata', 'colorschememapping', 'listtable',
+    'listoverridetable', 'header', 'footer', 'headerl', 'headerr',
+    'headerf', 'footerl', 'footerr', 'footerf', 'xmlnstbl',
+    'footnote', 'annotation',
+})
+
+# Control words that produce a character.
+_SYMBOL_WORDS = {
+    'par': '\n',
+    'line': '\n',
+    'tab': ' ',  # the editor has no tab stops; nearest equivalent
+    'emdash': '—',
+    'endash': '–',
+    'lquote': '‘',
+    'rquote': '’',
+    'ldblquote': '“',
+    'rdblquote': '”',
+    'bullet': '•',
+}
+
+
+def _get_style(bold: bool, underline: bool) -> int:
+    """Convert bold/underline flags to style mask value."""
+    style = 0
+    if bold:
+        style |= 1
+    if underline:
+        style |= 2
+    return style
+
+
+def _decode_hex_byte(code: int, codepage: int) -> str:
+    """Decode a \\'xx hex escape byte using the document's declared code page
+    (\\ansicpgN; Windows-1252 by default, where 0x80-0x9F are printable
+    smart quotes, dashes, ...)."""
+    for encoding in (f'cp{codepage}', 'cp1252'):
+        try:
+            return bytes([code]).decode(encoding)
+        except (UnicodeDecodeError, LookupError):
+            continue
+    return chr(code)
+
+
+def _merge_surrogate_pairs(chars: List[str], styles: List[int]) -> None:
+    """Merge UTF-16 surrogate pairs written as two \\uN words (in place)."""
+    i = 0
+    while i + 1 < len(chars):
+        hi, lo = ord(chars[i]), ord(chars[i + 1])
+        if 0xD800 <= hi <= 0xDBFF and 0xDC00 <= lo <= 0xDFFF:
+            merged = 0x10000 + ((hi - 0xD800) << 10) + (lo - 0xDC00)
+            chars[i] = chr(merged)
+            del chars[i + 1]
+            del styles[i + 1]
+        i += 1
+
 
 def parse_rtf(rtf_text: str) -> Tuple[str, Optional[List[List[int]]]]:
     """Parse RTF format to extract text and styles.
-    
+
+    Tokenizes RTF properly (control words are matched exactly, never by
+    prefix) and skips destination groups such as the font table, so no
+    header text leaks into the result.
+
     Args:
         rtf_text: RTF formatted text
-        
+
     Returns:
         Tuple of (plain_text, styles) where styles is a list of style masks
         Returns empty string if RTF exceeds size limit
     """
     if not rtf_text or not rtf_text.startswith('{\\rtf'):
         return rtf_text, None
-    
+
     # Check size limit to prevent DoS
     if len(rtf_text) > MAX_RTF_SIZE:
         return "", None  # Return empty string for oversized RTF
-    
-    # Track text and styles
-    text_chars = []
-    style_chars = []
-    
-    # State tracking
+
+    text_chars: List[str] = []
+    style_chars: List[int] = []
+
     bold = False
     underline = False
-    group_stack = []  # Stack of (bold, underline) states
+    uc_skip = 1  # characters following \uN that are a fallback (RTF default)
+    skip_group = False  # inside a destination group (fonttbl, \*..., ...)
+    pending_uc = 0  # fallback characters still to consume after \uN
+    codepage = 1252  # \ansicpgN; Windows-1252 unless declared otherwise
+    # Stack of (bold, underline, uc_skip, skip_group) saved at each '{'
+    group_stack: List[Tuple[bool, bool, int, bool]] = []
+
+    def emit(ch: str) -> None:
+        if skip_group:
+            return
+        text_chars.append(ch)
+        style_chars.append(_get_style(bold, underline))
+
+    def consume_uc_fallback() -> bool:
+        """Whether the next literal char / hex escape is a \\uN fallback.
+
+        Only ordinary characters and \\'xx escapes count as fallback text;
+        control words like \\par must not be swallowed."""
+        nonlocal pending_uc
+        if pending_uc > 0:
+            pending_uc -= 1
+            return True
+        return False
+
     i = 0
-    
-    # Skip past header to find content
-    # Content typically starts after \pard or similar paragraph commands
-    content_markers = [r'\pard', r'\pardeftab']
-    content_start = 0
-    for marker in content_markers:
-        pos = rtf_text.find(marker)
-        if pos > content_start:
-            content_start = pos
-    
-    if content_start > 0:
-        # Skip to after the paragraph command and any following commands
-        i = content_start
-        while i < len(rtf_text) and rtf_text[i] != ' ' and rtf_text[i] != '\n':
+    n = len(rtf_text)
+    while i < n:
+        ch = rtf_text[i]
+
+        if ch == '{':
+            group_stack.append((bold, underline, uc_skip, skip_group))
+            pending_uc = 0
             i += 1
-        # Skip past any additional formatting commands
-        while i < len(rtf_text):
-            if rtf_text[i] == '\\':
-                # Skip control word
-                i += 1
-                while i < len(rtf_text) and (rtf_text[i].isalpha() or rtf_text[i].isdigit() or rtf_text[i] == '-'):
-                    i += 1
-                if i < len(rtf_text) and rtf_text[i] == ' ':
-                    i += 1
-            elif rtf_text[i] in ' \n':
-                i += 1
-            else:
-                break
-    
-    # Parse content
-    while i < len(rtf_text):
-        if rtf_text[i] == '\\':
-            if i + 1 < len(rtf_text):
-                # Handle control sequences
-                if rtf_text[i:i+2] == '\\b':
-                    # Check if it's \b0 (bold off) or \b (bold on)
-                    if i + 2 < len(rtf_text) and rtf_text[i+2] == '0':
-                        bold = False
-                        i += 3
-                    else:
-                        bold = True
-                        i += 2
-                    # Skip optional space
-                    if i < len(rtf_text) and rtf_text[i] == ' ':
-                        i += 1
-                    continue
-                
-                elif rtf_text[i:i+3] == '\\ul':
-                    # Check for \ul0 or \ulnone (underline off)
-                    if i + 3 < len(rtf_text):
-                        if rtf_text[i+3] == '0':
-                            underline = False
-                            i += 4
-                        elif rtf_text[i+3:i+7] == 'none':
-                            underline = False
-                            i += 7
-                        else:
-                            underline = True
-                            i += 3
-                    else:
-                        underline = True
-                        i += 3
-                    # Skip optional space
-                    if i < len(rtf_text) and rtf_text[i] == ' ':
-                        i += 1
-                    continue
-                
-                elif rtf_text[i:i+4] == '\\par':
-                    # Paragraph break - add newline
-                    text_chars.append('\n')
-                    style_chars.append(0)
-                    i += 4
-                    # Skip optional space and newline
-                    while i < len(rtf_text) and rtf_text[i] in ' \n':
-                        i += 1
-                    continue
-                
-                elif rtf_text[i:i+2] == '\\\\':
-                    # Escaped backslash
-                    text_chars.append('\\')
-                    style = _get_style(bold, underline)
-                    style_chars.append(style)
-                    i += 2
-                    continue
-                
-                elif rtf_text[i:i+2] == '\\{':
-                    # Escaped brace
-                    text_chars.append('{')
-                    style = _get_style(bold, underline)
-                    style_chars.append(style)
-                    i += 2
-                    continue
-                
-                elif rtf_text[i:i+2] == '\\}':
-                    # Escaped brace
-                    text_chars.append('}')
-                    style = _get_style(bold, underline)
-                    style_chars.append(style)
-                    i += 2
-                    continue
-                
-                elif rtf_text[i:i+2] == '\\\n' or rtf_text[i:i+2] == '\\\r':
-                    # Line continuation in RTF source (ignore)
-                    i += 2
-                    continue
-                
-                elif rtf_text[i:i+2] == "\\'": 
-                    # Hex escape sequence (e.g., \'f8 for ø)
-                    i += 2
-                    if i + 1 < len(rtf_text):
-                        hex_chars = rtf_text[i:i+2]
-                        try:
-                            char_code = int(hex_chars, 16)
-                            text_chars.append(chr(char_code))
-                            style = _get_style(bold, underline)
-                            style_chars.append(style)
-                            i += 2
-                        except ValueError:
-                            # Invalid hex, keep the literal characters
-                            text_chars.append(hex_chars[0] if hex_chars else '')
-                            if len(hex_chars) > 1:
-                                text_chars.append(hex_chars[1])
-                            style = _get_style(bold, underline)
-                            style_chars.append(style)
-                            if len(hex_chars) > 1:
-                                style_chars.append(style)
-                            i += len(hex_chars)
-                    continue
-                
-                elif rtf_text[i:i+2] == "\\u":
-                    # Unicode character (e.g., \u248? for ø)
-                    i += 2
-                    num_str = ''
-                    # Handle negative numbers for characters > 32767
-                    if i < len(rtf_text) and rtf_text[i] == '-':
-                        num_str += rtf_text[i]
-                        i += 1
-                    # Read digits
-                    while i < len(rtf_text) and rtf_text[i].isdigit():
-                        num_str += rtf_text[i]
-                        i += 1
-                    
-                    if num_str:
-                        try:
-                            char_code = int(num_str)
-                            # Handle negative values (two's complement for values > 32767)
-                            if char_code < 0:
-                                char_code = 65536 + char_code
-                            if 0 <= char_code <= 0x10FFFF:  # Valid Unicode range
-                                text_chars.append(chr(char_code))
-                                style = _get_style(bold, underline)
-                                style_chars.append(style)
-                        except (ValueError, OverflowError):
-                            pass
-                    
-                    # Skip the replacement character (usually ?)
-                    if i < len(rtf_text) and rtf_text[i] == '?':
-                        i += 1
-                    continue
-                
+            # Destination groups: {\*\word ...} or {\fonttbl ...}; source
+            # line breaks may separate the brace from the control word
+            j0 = i
+            while j0 < n and rtf_text[j0] in '\r\n':
+                j0 += 1
+            if j0 < n and rtf_text[j0] == '\\':
+                if j0 + 1 < n and rtf_text[j0 + 1] == '*':
+                    skip_group = True
                 else:
-                    # Skip other control sequences
-                    i += 1
-                    # Skip control word
-                    while i < len(rtf_text) and (rtf_text[i].isalpha() or rtf_text[i] == '*'):
-                        i += 1
-                    # Skip optional numeric parameter
-                    if i < len(rtf_text) and (rtf_text[i] == '-' or rtf_text[i].isdigit()):
-                        if rtf_text[i] == '-':
-                            i += 1
-                        while i < len(rtf_text) and rtf_text[i].isdigit():
-                            i += 1
-                    # Skip optional space
-                    if i < len(rtf_text) and rtf_text[i] == ' ':
-                        i += 1
-                    continue
-            else:
-                i += 1
-        
-        elif rtf_text[i] == '{':
-            # Start of group - save current state
-            group_stack.append((bold, underline))
-            i += 1
-        
-        elif rtf_text[i] == '}':
-            # End of group - restore previous state
+                    j = j0 + 1
+                    while j < n and rtf_text[j].isalpha():
+                        j += 1
+                    if rtf_text[j0 + 1:j] in _SKIP_DESTINATIONS:
+                        skip_group = True
+            continue
+
+        if ch == '}':
             if group_stack:
-                bold, underline = group_stack.pop()
+                bold, underline, uc_skip, skip_group = group_stack.pop()
+            pending_uc = 0
+            i += 1
+            if not group_stack:
+                break  # closed the root group: end of document
+            continue
+
+        if ch in '\r\n':
+            # Line breaks in the RTF source are not content
+            i += 1
+            continue
+
+        if ch != '\\':
+            if not consume_uc_fallback():
+                emit(ch)
+            i += 1
+            continue
+
+        # Backslash: control word, control symbol, or escape
+        if i + 1 >= n:
+            break
+        c = rtf_text[i + 1]
+
+        if c == "'":
+            # Hex escape, e.g. \'f8
+            hex_chars = rtf_text[i + 2:i + 4]
+            try:
+                code = int(hex_chars, 16)
+            except ValueError:
+                code = None
+            if len(hex_chars) == 2 and code is not None:
+                if not consume_uc_fallback():
+                    emit(_decode_hex_byte(code, codepage))
+                i += 4
             else:
-                # End of document
-                break
-            i += 1
-        
-        elif rtf_text[i] in '\r\n':
-            # RTF source line breaks (not content)
-            i += 1
-        
-        else:
-            # Regular character
-            text_chars.append(rtf_text[i])
-            style = _get_style(bold, underline)
-            style_chars.append(style)
-            i += 1
-    
-    # Convert to result format
+                # Invalid hex: preserve the characters as literal text
+                if not consume_uc_fallback():
+                    for hc in hex_chars:
+                        emit(hc)
+                i += 2 + len(hex_chars)
+            continue
+
+        if c in '\\{}':
+            if not consume_uc_fallback():
+                emit(c)
+            i += 2
+            continue
+        if c == '~':
+            if not consume_uc_fallback():
+                emit('\xa0')  # non-breaking space
+            i += 2
+            continue
+        if c == '_':
+            if not consume_uc_fallback():
+                emit('-')  # non-breaking hyphen
+            i += 2
+            continue
+        if not c.isalpha():
+            # \- (optional hyphen), \* (handled at group start), \<newline>
+            # (line continuation), and any other control symbol: no content
+            i += 2
+            continue
+
+        # Control word: letters, optional signed integer, optional one
+        # space delimiter (the space belongs to the control word)
+        j = i + 1
+        while j < n and rtf_text[j].isalpha():
+            j += 1
+        word = rtf_text[i + 1:j]
+        param: Optional[int] = None
+        k = j
+        if k < n and (rtf_text[k] == '-' or rtf_text[k].isdigit()):
+            num_start = k
+            if rtf_text[k] == '-':
+                k += 1
+            while k < n and rtf_text[k].isdigit():
+                k += 1
+            try:
+                param = int(rtf_text[num_start:k])
+            except ValueError:
+                param = None
+        if k < n and rtf_text[k] == ' ':
+            k += 1
+        i = k
+
+        if word != 'u':
+            # A \uN fallback is the character(s) immediately following the
+            # \uN word; any other control word closes the fallback window
+            # (otherwise e.g. the text after a \par would be swallowed)
+            pending_uc = 0
+
+        if word == 'b':
+            bold = param != 0
+        elif word == 'ul':
+            underline = param != 0
+        elif word == 'ulnone':
+            underline = False
+        elif word == 'plain':
+            bold = False
+            underline = False
+        elif word in _SYMBOL_WORDS:
+            emit(_SYMBOL_WORDS[word])
+        elif word == 'uc':
+            uc_skip = param if param is not None else 1
+        elif word == 'u':
+            code = param
+            if code is not None:
+                if code < 0:
+                    code += 65536  # \uN is a signed 16-bit value
+                if 0 <= code <= 0x10FFFF:
+                    emit(chr(code))
+            pending_uc = uc_skip
+        elif word == 'ansicpg':
+            if param is not None:
+                codepage = param
+        # All other control words carry no document text; ignore them.
+
     if not text_chars:
         return "", None
-    
+
+    _merge_surrogate_pairs(text_chars, style_chars)
     text = ''.join(text_chars)
-    
+
     # Convert flat style list to paragraph-based format
     paragraphs = text.split('\n')
     styles_list = []
-    
+
     char_index = 0
     for para in paragraphs:
         para_len = len(para)
@@ -257,21 +281,9 @@ def parse_rtf(rtf_text: str) -> Tuple[str, Optional[List[List[int]]]]:
         else:
             styles_list.append([])
         char_index += 1  # Skip the newline
-    
+
     # Return with styles only if there are actual styles
     if styles_list and any(any(s != 0 for s in para) for para in styles_list):
         return text, styles_list
     else:
         return text, None
-
-
-def _get_style(bold: bool, underline: bool) -> int:
-    """Convert bold/underline flags to style mask value."""
-    style = 0
-    if bold and underline:
-        style = 3
-    elif bold:
-        style = 1
-    elif underline:
-        style = 2
-    return style

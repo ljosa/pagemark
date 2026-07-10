@@ -199,9 +199,14 @@ class ClipboardManager:
         # Handle Unicode characters
         result = []
         for char in text:
-            if ord(char) > 127:
-                # Use Unicode escape
-                result.append(f'\\u{ord(char)}?')
-            else:
+            if ord(char) <= 127:
                 result.append(char)
+            else:
+                # RTF \uN takes signed 16-bit UTF-16 code units; astral
+                # characters become a surrogate pair (two \uN words). The
+                # UTF-16 codec produces exactly those units.
+                units = char.encode('utf-16-be')
+                for k in range(0, len(units), 2):
+                    n = int.from_bytes(units[k:k + 2], 'big', signed=True)
+                    result.append(f'\\u{n}?')
         return ''.join(result)

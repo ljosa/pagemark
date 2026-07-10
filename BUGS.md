@@ -1,22 +1,8 @@
 # Bugs
 
+BUG-4 (RTF control-word prefix matching) was fixed on 2026-07-09 by the
+tokenizer rewrite of `rtf_parser.py`; see TICKETS.md BUG-14.
 
-## BUG-4: RTF parser matches control word prefixes incorrectly
-
-**Severity:** Medium
-**Files:** `pagemark/rtf_parser.py:70-101`
-
-The RTF parser uses prefix matching for control words:
-
-- `rtf_text[i:i+2] == '\\b'` matches `\blue`, `\bin`, `\brdrt`, etc. — not just `\b` (bold)
-- `rtf_text[i:i+3] == '\\ul'` matches `\ulc`, `\uldb`, `\ulhair`, etc. — not just `\ul` (underline)
-- `rtf_text[i:i+4] == '\\par'` matches `\pard`, `\pardeftab`, etc. — not just `\par` (paragraph break)
-
-When pasting RTF content containing these other control words, bold/underline could be incorrectly toggled and paragraph breaks incorrectly inserted.
-
-**Fix:** After matching the prefix, verify the next character is a space, digit, `0`, or non-alpha character to confirm it's the intended control word and not a longer one.
-
----
 
 ## BUG-5: Undo always marks document as modified
 
