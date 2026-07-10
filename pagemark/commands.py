@@ -119,16 +119,22 @@ class EditCommand(EditorCommand):
         self._edit(editor, key_event)
         # Capture snapshot after edit and push to undo stack
         after = editor._snapshot_state()
-        try:
-            from .undo import UndoEntry
-            editor.undo.push(UndoEntry(before=before, after=after))
-        except Exception:
-            # Justification: Undo persistence should never break editing.
-            # We intentionally catch any exception to ensure edits proceed;
-            # failures here only affect the ability to undo, not document integrity.
-            pass
+        # A command that left the document unchanged (cut with no selection,
+        # failed center, caret-style toggle, ...) must not mark the buffer
+        # modified or push a no-op undo entry.
+        doc_changed = (before.paragraphs != after.paragraphs
+                       or before.styles != after.styles)
+        if doc_changed:
+            try:
+                from .undo import UndoEntry
+                editor.undo.push(UndoEntry(before=before, after=after))
+            except Exception:
+                # Justification: Undo persistence should never break editing.
+                # We intentionally catch any exception to ensure edits proceed;
+                # failures here only affect the ability to undo, not document integrity.
+                pass
         editor.view.update_desired_x()
-        return True
+        return doc_changed
     
     @abstractmethod
     def _edit(self, editor: 'Editor', key_event: 'KeyEvent'):
@@ -182,13 +188,16 @@ class TabCommand(EditCommand):
 
 class InsertTextCommand(EditCommand):
     def _edit(self, editor, key_event):
-        char = key_event.value
-        # Filter out control characters (but not tab, which is handled separately)
-        if ord(char[0]) >= 32:
+        # Same character policy as paste: control characters are dropped,
+        # tab-like whitespace becomes a space (tab itself is handled by
+        # TabCommand before reaching here)
+        kept = [c for c in map(editor.model._keep_insertable_char, key_event.value)
+                if c is not None]
+        if kept:
             # Delete any selection first
             if editor.model.selection_start is not None:
                 editor.model.delete_selection()
-            editor.model.insert_text(char)
+            editor.model.insert_text(''.join(kept))
 
 
 class SystemCommand(EditorCommand):
@@ -497,10 +506,13 @@ class ToggleStyleCommand(EditCommand):
         """Toggle the style for selection or caret."""
         model = editor.model
         flag = self.style_flag
-        
+
         # Apply to selection if present; otherwise toggle caret style
         if model.selection_start is not None and model.selection_end is not None:
             self._toggle_selection_style(model, flag)
+            # Styles changed in place; re-render so the frame's style lines
+            # reflect the toggle immediately instead of after the next edit.
+            editor.view.render()
         else:
             # Toggle caret style bit
             model.caret_style ^= flag

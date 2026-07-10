@@ -135,8 +135,9 @@ def test_center_line_command_multi_line_error():
     )
     
     modified = command.execute(editor, key_event)
-    
-    assert modified == True  # EditCommand always returns True
+
+    # A failed centering leaves the document unchanged (BUG-19)
+    assert modified == False
     assert editor.status_message == "Cannot center multi-line paragraph"
 
 

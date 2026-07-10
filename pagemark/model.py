@@ -1,3 +1,4 @@
+import unicodedata
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from enum import IntFlag
@@ -205,8 +206,8 @@ class TextModel:
         in_view = self.view.start_paragraph_index <= position.paragraph_index < self.view.end_paragraph_index
 
         paragraphs = text.split("\n")
-        para_idx = self.cursor_position.paragraph_index
-        char_idx = self.cursor_position.character_index
+        para_idx = position.paragraph_index
+        char_idx = position.character_index
         current_paragraph = self.paragraphs[para_idx]
         before_cursor = current_paragraph[:char_idx]
         after_cursor = current_paragraph[char_idx:]
@@ -471,8 +472,8 @@ class TextModel:
         self.paragraphs[para_idx] = new_paragraph
         self.styles[para_idx] = new_styles
         
-        # Move cursor to end of transposed region
-        self.cursor_position.character_index = word2.start() + len(word1.group())
+        # Move cursor to end of transposed region (total length is unchanged)
+        self.cursor_position.character_index = word2.end()
         self.view.render()
     
     def transpose_chars(self):
@@ -544,6 +545,7 @@ class TextModel:
         # Don't center empty lines
         if not stripped:
             self.paragraphs[para_idx] = ""
+            self.styles[para_idx] = []
             self.cursor_position.character_index = 0
             self.view.render()
             return True
@@ -555,24 +557,30 @@ class TextModel:
         # Calculate centering
         spaces_needed = (width - len(stripped)) // 2
         centered = ' ' * spaces_needed + stripped
-        
-        # Update the paragraph
+
+        # Update the paragraph, moving the style mask with its characters
+        self._sync_styles_length()
+        old_leading = len(paragraph) - len(paragraph.lstrip())
+        content_styles = self.styles[para_idx][old_leading:old_leading + len(stripped)]
         self.paragraphs[para_idx] = centered
-        
+        self.styles[para_idx] = [0] * spaces_needed + content_styles
+
         # Adjust cursor position to account for added spaces
         # If cursor was at the beginning, keep it at the beginning of the centered text
-        if self.cursor_position.character_index <= len(paragraph) - len(paragraph.lstrip()):
+        if self.cursor_position.character_index <= old_leading:
             self.cursor_position.character_index = spaces_needed
         else:
-            # Adjust cursor position by the difference in leading spaces
-            old_leading = len(paragraph) - len(paragraph.lstrip())
-            self.cursor_position.character_index = self.cursor_position.character_index - old_leading + spaces_needed
-        
+            # Adjust by the difference in leading spaces, clamped to the new
+            # length (strip() may also have removed trailing spaces the
+            # cursor was sitting in)
+            self.cursor_position.character_index = min(
+                self.cursor_position.character_index - old_leading + spaces_needed,
+                len(centered))
+
         self.view.render()
         return True
 
- 
-    
+
     def _join_with_previous_paragraph(self):
         """Join current paragraph with previous one, positioning cursor at join point.
         
@@ -1069,9 +1077,10 @@ class TextModel:
         """Paste from system clipboard at cursor position, replacing any selection."""
         if self.selection_start is not None:
             self.delete_selection()
-        
+
         # Get content from system clipboard
         text, styles = ClipboardManager.paste_text()
+        text, styles = self._sanitize_clipboard_content(text, styles)
         if text:
             # If styled clipboard present, insert with styles
             if styles is not None:
@@ -1079,6 +1088,54 @@ class TextModel:
                 self._insert_text_with_styles(parts, styles)
             else:
                 self.insert_text(text)
+
+    @staticmethod
+    def _keep_insertable_char(ch: str) -> Optional[str]:
+        """Map a character to what may enter the document, or None to drop.
+
+        Shared policy for typed and pasted input: characters that break
+        fixed-width rendering are excluded. Tabs and non-ASCII space
+        separators (em space, narrow NBSP, ...) become a plain space; other
+        control characters are dropped. NBSP is kept because bullet
+        paragraphs use it as a marker.
+        """
+        if ch == ' ' or ch == '\xa0':
+            return ch
+        if ch == '\t' or unicodedata.category(ch) in ('Zs', 'Zl', 'Zp'):
+            return ' '
+        if ch.isprintable():
+            return ch
+        return None
+
+    @classmethod
+    def _sanitize_clipboard_content(cls, text: str,
+                                    styles: Optional[StyleMasks]) -> tuple[str, Optional[StyleMasks]]:
+        """Normalize pasted text (line endings, tabs, control characters).
+
+        CR and CRLF become LF; other control characters are dropped. When
+        per-paragraph style masks are present they are kept aligned with the
+        surviving characters. (Styled text arrives pre-split by the RTF
+        parser, which never emits CR, so CR normalization only applies to
+        the plain-text path where it cannot desync the masks.)
+        """
+        if styles is None:
+            text = text.replace('\r\n', '\n').replace('\r', '\n')
+
+        parts = text.split('\n')
+        out_parts: list[str] = []
+        out_styles: StyleMasks = []
+        for i, part in enumerate(parts):
+            mask = (styles[i] if i < len(styles) else []) if styles is not None else []
+            chars: list[str] = []
+            flags: StyleMask = []
+            for j, ch in enumerate(part):
+                kept = cls._keep_insertable_char(ch)
+                if kept is not None:
+                    chars.append(kept)
+                    flags.append(mask[j] if j < len(mask) else 0)
+            out_parts.append(''.join(chars))
+            out_styles.append(flags)
+        return '\n'.join(out_parts), (out_styles if styles is not None else None)
     
     def kill_line(self):
         """Delete from cursor to end of visual line (Emacs-style Ctrl-K)."""

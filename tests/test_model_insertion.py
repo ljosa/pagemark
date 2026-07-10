@@ -137,7 +137,7 @@ def test_insert_splits_word():
 
 
 def test_insert_with_position_parameter():
-    """Test that position parameter has a bug - it's ignored in the implementation."""
+    """Text is inserted at an explicit position, not at the cursor (BUG-12)."""
     v = TerminalTextView()
     v.num_rows = 10
     v.num_columns = 80
@@ -148,21 +148,12 @@ def test_insert_with_position_parameter():
     assert m.cursor_position.paragraph_index == 0
     assert m.cursor_position.character_index == 0
 
-    # Try to insert at a specific position in second paragraph
+    # Insert at a specific position in the second paragraph
     insert_position = CursorPosition(1, 2)  # After "DE" in "DEF"
     m.insert_text("XXX\nYYY", position=insert_position)
 
-    # BUG: The position parameter is ignored!
-    # The insertion happens at cursor position (0,0) instead of the specified position
-    # This is because lines 58-66 in model.py use self.cursor_position instead of position
+    assert m.paragraphs == ["ABC", "DEXXX", "YYYF", "GHI"]
 
-    # The actual (buggy) behavior:
-    assert len(m.paragraphs) == 4
-    assert m.paragraphs[0] == "XXX"  # Inserted at cursor position, not at specified position
-    assert m.paragraphs[1] == "YYYABC"  # Rest of "ABC" after the insertion
-    assert m.paragraphs[2] == "DEF"  # Original second paragraph unchanged
-    assert m.paragraphs[3] == "GHI"  # Original third paragraph unchanged
-
-    # Cursor moved based on the insertion at cursor position
-    assert m.cursor_position.paragraph_index == 1
+    # Cursor ends up after the inserted text
+    assert m.cursor_position.paragraph_index == 2
     assert m.cursor_position.character_index == 3  # After "YYY"
