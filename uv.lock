@@ -274,7 +274,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "blessed", specifier = ">=1.21.0" },
+    { name = "blessed", specifier = ">=1.21.0,<1.40" },
     { name = "curtsies", specifier = ">=0.4.2" },
     { name = "platformdirs", specifier = ">=4.0.0" },
     { name = "pyobjc-framework-cocoa", marker = "sys_platform == 'darwin'", specifier = ">=11.0" },

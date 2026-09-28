@@ -5,7 +5,7 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.9"
 dependencies = [
-    "blessed>=1.21.0",
+    "blessed>=1.21.0,<1.40",
     "curtsies>=0.4.2",
     "reportlab>=4.0.0",
     "pyperclip>=1.8.2",
