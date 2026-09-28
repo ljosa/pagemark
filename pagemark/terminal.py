@@ -1,5 +1,7 @@
 """Terminal interface using Blessed for display and Curtsies for input."""
 
+from __future__ import annotations
+
 import blessed
 from typing import Optional
 

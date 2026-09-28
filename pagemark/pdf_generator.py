@@ -5,6 +5,8 @@ supporting both built-in PDF fonts (Courier) and custom TrueType fonts
 (Prestige Elite Std) with proper embedding and character encoding.
 """
 
+from __future__ import annotations
+
 import os
 from typing import List, Optional
 from reportlab.pdfgen import canvas

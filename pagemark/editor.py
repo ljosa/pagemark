@@ -1,5 +1,7 @@
 """Main editor controller for the word processor."""
 
+from __future__ import annotations
+
 import os
 import sys
 import select

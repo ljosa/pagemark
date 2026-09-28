@@ -1,5 +1,7 @@
 """Generate PostScript directly in Python for printing."""
 
+from __future__ import annotations
+
 from typing import List
 
 
