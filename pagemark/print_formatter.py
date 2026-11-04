@@ -112,7 +112,7 @@ class PrintFormatter:
                         # Determine visual indent for wrapped bullet/numbered paragraphs
                         visual_indent = 0
                         if li > 0:
-                            hiw = get_hanging_indent_width(paragraph)
+                            hiw = get_hanging_indent_width(paragraph, self.TEXT_WIDTH)
                             if hiw > 0:
                                 visual_indent = hiw
                         x = max(visual_indent, 0)

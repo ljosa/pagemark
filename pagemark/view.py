@@ -235,14 +235,19 @@ def _get_hanging_indent_width(paragraph: str) -> int:
     return 0
 
 
-def get_hanging_indent_width(paragraph: str) -> int:
+def get_hanging_indent_width(paragraph: str, num_columns: Optional[int] = None) -> int:
     """Public helper: return hanging indent width for bullets/numbers.
 
     This wraps the internal implementation to provide a stable API for
     other modules (e.g., printing/formatting) without importing a private
     function.
     """
-    return _get_hanging_indent_width(paragraph)
+    width = _get_hanging_indent_width(paragraph)
+    # Reserve room for a two-column character (including displayed em dashes).
+    # Use the same effective indent in rendering, navigation, and styling.
+    if num_columns is not None:
+        width = min(width, max(0, num_columns - 2))
+    return width
 
 
 def render_paragraph(paragraph: str, num_columns: int) -> tuple[list[str], list[int]]:
@@ -257,6 +262,8 @@ def render_paragraph(paragraph: str, num_columns: int) -> tuple[list[str], list[
     space to wrap to the next line, both spaces are kept on the current line
     by extending it into the right margin (up to num_columns + 1).
     """
+    if num_columns < 1:
+        raise ValueError("num_columns must be positive")
     if not paragraph:
         return ([""], [0])
 
@@ -273,11 +280,11 @@ def render_paragraph(paragraph: str, num_columns: int) -> tuple[list[str], list[
         for i, char in enumerate(text):
             char_width = 2 if char == '—' else 1
             if visual_pos + char_width > max_visual_width:
-                return text[:i]
+                return text[:max(1, i)]  # Always consume an oversized character.
             visual_pos += char_width
         return text
     
-    hanging_width = _get_hanging_indent_width(paragraph)
+    hanging_width = get_hanging_indent_width(paragraph, num_columns)
     indent_prefix = " " * hanging_width if hanging_width > 0 else ""
 
     lines: list[str] = []
@@ -429,7 +436,7 @@ def get_line_mapper(paragraph: str, num_columns: int) -> VisualLineMapper:
     line/column positions.
     """
     lines, cumulative_counts = render_paragraph(paragraph, num_columns)
-    hanging_width = _get_hanging_indent_width(paragraph)
+    hanging_width = get_hanging_indent_width(paragraph, num_columns)
     return VisualLineMapper(
         lines=lines,
         cumulative_counts=cumulative_counts,
@@ -474,7 +481,7 @@ class TerminalTextView(TextView):
             Adjusted style slice with hanging indent padding if applicable
         """
         if is_wrapped_line:
-            hanging_width = _get_hanging_indent_width(paragraph)
+            hanging_width = get_hanging_indent_width(paragraph, self.num_columns)
             if hanging_width > 0:
                 # Prepend padding for the hanging indent spaces
                 return [0] * hanging_width + style_slice
