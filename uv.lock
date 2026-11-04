@@ -262,6 +262,7 @@ dependencies = [
     { name = "pyobjc-framework-cocoa", version = "12.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.10' and sys_platform == 'darwin'" },
     { name = "pyperclip" },
     { name = "reportlab" },
+    { name = "wcwidth" },
 ]
 
 [package.dev-dependencies]
@@ -280,6 +281,7 @@ requires-dist = [
     { name = "pyobjc-framework-cocoa", marker = "sys_platform == 'darwin'", specifier = ">=11.0" },
     { name = "pyperclip", specifier = ">=1.8.2" },
     { name = "reportlab", specifier = ">=4.0.0" },
+    { name = "wcwidth", specifier = ">=0.2.13" },
 ]
 
 [package.metadata.requires-dev]

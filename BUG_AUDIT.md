@@ -278,6 +278,10 @@ persist the current preferences, without overwriting them with defaults.
 
 ## BUG-30: Cursor columns count codepoints instead of terminal cells
 
+**Status:** Fixed; wrapping, cursor mapping, selection, and terminal painting
+share cell-width measurements and keep combining sequences together. Style
+arrays remain indexed by rendered characters, separately from cell positions.
+
 **Source:** [pagemark/view.py](pagemark/view.py), `visual_column` (line 103),
 `content_column_from_visual` (line 123), and `render_paragraph.visual_width`
 (line 263).

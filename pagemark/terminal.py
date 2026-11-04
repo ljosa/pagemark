@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from .text_layout import display_prefix, display_spans, display_width
+
 import blessed
 from typing import Optional
 
@@ -84,7 +86,7 @@ class TerminalInterface:
     
     def draw_line(self, y: int, text: str, left_margin: int = 0, view_width: int = 65):
         """Redraw a single line at row y without clearing the screen."""
-        display_line = (text[:view_width]).ljust(view_width)
+        display_line = self._compose_display_line(text, view_width, None)
         print(self.term.move(y, left_margin) + display_line, end='', flush=True)
         
     def draw_lines(self, lines: list[str], cursor_y: int, cursor_x: int, 
@@ -107,21 +109,9 @@ class TerminalInterface:
         for y, line in enumerate(lines):
             # Move to position and draw line with margin
             print(self.term.move(y, left_margin), end='')
-            # Ensure line is exactly view_width characters (pad or truncate)
-            display_line = line[:view_width].ljust(view_width)
-            
-            # Check if this line has any selection
-            if selection_ranges and y < len(selection_ranges) and selection_ranges[y]:
-                start_col, end_col = selection_ranges[y]
-                # Draw line with selection highlighting
-                if start_col > 0:
-                    print(display_line[:start_col], end='')
-                print(self.term.reverse + display_line[start_col:end_col] + self.term.normal, end='')
-                if end_col < len(display_line):
-                    print(display_line[end_col:], end='')
-            else:
-                print(display_line, end='')
-            
+            selection = selection_ranges[y] if selection_ranges and y < len(selection_ranges) else None
+            print(self._compose_display_line(line, view_width, selection), end='')
+
         # Draw status line at bottom
         if status_override:
             # When there's a message or interaction, show it without F1 help
@@ -145,10 +135,11 @@ class TerminalInterface:
                                styles: Optional[list[int]] = None) -> str:
         """Compose a display line with bold/underline and optional selection, padded to width.
 
-        Styles is a per-column bitmask list with 1=bold, 2=underline.
+        Styles is a per-rendered-character bitmask list; selection uses cells.
         """
-        text = line[:view_width].ljust(view_width)
-        styles = (styles or [])[:view_width] + [0]*max(0, view_width - len(styles or []))
+        text = display_prefix(line, view_width)
+        text += ' ' * max(0, view_width - display_width(text))
+        styles = styles or []
 
         out = []
         active_bold = False
@@ -171,15 +162,16 @@ class TerminalInterface:
                 out.append(self.term.reverse)
             active_bold, active_under, active_rev = bold, under, rev
 
-        for i, ch in enumerate(text):
-            sel = False
-            if selection and selection[0] <= i < selection[1]:
-                sel = True
-            bold = bool(styles[i] & 1)
-            under = bool(styles[i] & 2)
+        column = 0
+        for start, end, width in display_spans(text):
+            sel = bool(selection and selection[0] < column + width and column < selection[1])
+            flags = styles[start] if start < len(styles) else 0
+            bold = bool(flags & 1)
+            under = bool(flags & 2)
             if (bold != active_bold) or (under != active_under) or (sel != active_rev):
                 set_attrs(bold, under, sel)
-            out.append(ch)
+            out.append(text[start:end])
+            column += width
         # Reset at end
         if active_bold or active_under or active_rev:
             out.append(self.term.normal)

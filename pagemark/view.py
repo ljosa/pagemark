@@ -11,6 +11,7 @@ except ImportError:  # pragma: no cover - compatibility shim
         return func
 from .model import TextView, CursorPosition
 from .constants import EditorConstants
+from .text_layout import display_prefix, display_spans, display_width
 
 
 @dataclass
@@ -108,14 +109,10 @@ class VisualLineMapper:
         """
         line_index, column = self.char_to_line_and_column(char_index)
         
-        # Count em-dashes from line start to this position to adjust visual column
         line_start_char = self.line_start(line_index)
         text_slice = self.paragraph[line_start_char:line_start_char + column]
-        emdash_count = text_slice.count('—')
-        
-        # Each em-dash adds one extra visual column (displayed as --)
-        visual_col = column + emdash_count
-        
+        visual_col = display_width(text_slice)
+
         if line_index > 0 and self.hanging_width > 0:
             return visual_col + self.hanging_width
         return visual_col
@@ -138,26 +135,15 @@ class VisualLineMapper:
                 return 0
             adjusted_visual_col = visual_column - self.hanging_width
         
-        # Now account for em-dashes: each em-dash takes 2 visual columns but 1 content column
-        # We need to find the content column that corresponds to the visual column
-        line_start_char = self.line_start(line_index)
-        line_end_char = self.line_end(line_index)
-        
-        # Walk through content characters counting visual columns
+        start = self.line_start(line_index)
+        end = self.line_end(line_index)
         visual_pos = 0
         content_pos = 0
-        
-        for i in range(line_start_char, line_end_char):
-            # Break when we've reached or passed the target visual column
+        for _, stop, width in display_spans(self.paragraph[start:end]):
             if visual_pos >= adjusted_visual_col:
                 break
-            char = self.paragraph[i] if i < len(self.paragraph) else ''
-            if char == '—':
-                visual_pos += 2  # Em-dash takes 2 visual columns
-            else:
-                visual_pos += 1
-            content_pos += 1
-        
+            visual_pos += width
+            content_pos = stop
         return content_pos
 
     def line_content_length(self, line_index: int) -> int:
@@ -194,7 +180,7 @@ class VisualLineMapper:
         """
         if line_index < 0 or line_index >= len(self.lines):
             return 0
-        return len(self.lines[line_index])
+        return display_width(self.lines[line_index])
 
     def is_extended(self, line_index: int) -> bool:
         """Check if a line extends beyond the standard wrapping width.
@@ -267,23 +253,11 @@ def render_paragraph(paragraph: str, num_columns: int) -> tuple[list[str], list[
     if not paragraph:
         return ([""], [0])
 
-    def visual_width(text: str) -> int:
-        """Calculate visual width accounting for em-dashes displayed as two hyphens."""
-        return len(text) + text.count('—')
-    
+    visual_width = display_width
+
     def slice_to_visual_width(text: str, max_visual_width: int) -> str:
-        """Slice text to fit within max_visual_width, accounting for em-dashes.
-        
-        Returns the longest prefix that fits within max_visual_width when displayed.
-        """
-        visual_pos = 0
-        for i, char in enumerate(text):
-            char_width = 2 if char == '—' else 1
-            if visual_pos + char_width > max_visual_width:
-                return text[:max(1, i)]  # Always consume an oversized character.
-            visual_pos += char_width
-        return text
-    
+        return display_prefix(text, max_visual_width, force_progress=True)
+
     hanging_width = get_hanging_indent_width(paragraph, num_columns)
     indent_prefix = " " * hanging_width if hanging_width > 0 else ""
 
@@ -582,12 +556,7 @@ class TerminalTextView(TextView):
                 visual_offset = current_mapper.hanging_width if current_mapper.has_hanging_indent(current_line_offset) else 0
 
                 def to_display_col(char_index: int) -> int:
-                    # Em-dashes display as two columns ("--"); count the
-                    # dashes before this index so the highlight lines up
-                    # with the expanded display line
-                    col = char_index - line_start_char
-                    col += para[line_start_char:char_index].count('—')
-                    return col + visual_offset
+                    return display_width(para[line_start_char:char_index]) + visual_offset
 
                 # Selection endpoints clamped to this line, in char space
                 sel_from = line_start_char
@@ -599,11 +568,11 @@ class TerminalTextView(TextView):
 
                 if sel_from < sel_to:
                     sel_start = to_display_col(sel_from)
-                    sel_end = min(len(line), to_display_col(sel_to))
+                    sel_end = min(display_width(line), to_display_col(sel_to))
                     if sel_to >= line_end_char:
                         # Line fully selected to its end: cover the visible
                         # remainder (wrap separator isn't displayed)
-                        sel_end = len(line)
+                        sel_end = display_width(line)
                     selection_ranges.append((sel_start, sel_end) if sel_start < sel_end else None)
                 else:
                     selection_ranges.append(None)
@@ -621,7 +590,7 @@ class TerminalTextView(TextView):
     
     def _display_style_slice(self, para: str, st: list[int], mapper: VisualLineMapper,
                              line_index: int, line_text: str) -> list[int]:
-        """Build the per-display-column style flags for one rendered line."""
+        """Build per-character style flags for the rendered (dash-expanded) text."""
         start_ci = mapper.line_start(line_index)
         end_ci = mapper.line_end(line_index)
         # Em-dashes render as two columns; expand styles to match
@@ -1010,7 +979,9 @@ class TerminalTextView(TextView):
         char_index = mapper.line_and_column_to_char(line_within_para, content_x)
         if (char_index > mapper.line_start(line_within_para)
                 and mapper.line_for_char_index(char_index) != line_within_para):
-            char_index -= 1
+            start = mapper.line_start(line_within_para)
+            spans = list(display_spans(mapper.paragraph[start:char_index]))
+            char_index = start + spans[-1][0]
         return char_index
 
     def _move_cursor_down_in_document(self):

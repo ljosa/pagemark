@@ -8,6 +8,7 @@ import sys
 from types import SimpleNamespace
 
 import pytest
+from wcwidth import wcswidth
 
 from pagemark.keyboard import KeyType
 from pagemark.editor import Editor
@@ -345,3 +346,74 @@ def test_bug29_failed_save_keeps_settings_association(editor, tmp_path):
     assert editor.save_file(old)
     assert not editor.save_file(str(tmp_path / "missing" / "new.txt"))
     assert editor.session._document_path == old
+
+
+@pytest.mark.parametrize("text", ["界x", "e\u0301x"])
+def test_bug30_cursor_uses_terminal_cell_width(editor, text):
+    press(editor, KeyType.REGULAR, text)
+    assert editor.view.visual_cursor_x == wcswidth(text)
+
+
+@pytest.mark.parametrize("text", ["界" * 40, "e\u0301" * 80, "—" * 40, "✈\ufe0f" * 40])
+def test_bug30_wrap_preserves_display_units(text):
+    from pagemark.view import get_line_mapper
+
+    mapper = get_line_mapper(text, 65)
+    assert all(wcswidth(line) <= 65 for line in mapper.lines)
+    assert "".join(mapper.lines) == text.replace("—", "--")
+    assert mapper.cumulative_counts[-1] == len(text)
+    for line in mapper.lines:
+        assert not line.startswith(("\u0301", "\ufe0f"))
+
+
+def test_bug30_vertical_navigation_preserves_cell_column(editor):
+    editor.model = TextModel(editor.view, ["界X", "abc", "e\u0301XY"])
+    editor.model.cursor_position = CursorPosition(0, 2)
+    editor.view.render()
+    editor.view.update_desired_x()
+    press(editor, KeyType.SPECIAL, "down")
+    assert editor.model.cursor_position == CursorPosition(1, 3)
+    press(editor, KeyType.SPECIAL, "down")
+    assert editor.model.cursor_position == CursorPosition(2, 4)
+    assert editor.view.visual_cursor_x == 3
+
+
+@pytest.mark.parametrize("text,column", [("界X", 2), ("e\u0301X", 1), ("✈\ufe0fX", 2)])
+def test_bug30_terminal_styles_and_selection_use_matching_coordinates(
+    editor, text, column
+):
+    import blessed
+    import pyte
+    from pagemark.terminal import TerminalInterface
+
+    set_text(editor, text)
+    editor.model.styles = [[0] * (len(text) - 1) + [1]]
+    editor.model.selection_start = CursorPosition(0, len(text) - 1)
+    editor.model.selection_end = CursorPosition(0, len(text))
+    editor.view.render()
+    selection = editor.view.get_selection_ranges()[0]
+    assert selection == (column, column + 1)
+    terminal = TerminalInterface(
+        blessed.Terminal(kind="xterm-256color", force_styling=True)
+    )
+    output = terminal._compose_display_line(
+        editor.view.lines[0], 10, selection, editor.view.line_styles[0]
+    )
+    assert wcswidth(terminal.term.strip_seqs(output)) == 10
+    screen = pyte.Screen(20, 2)
+    pyte.Stream(screen).feed(output)
+    # pyte 0.8 does not implement variation-selector width changes.
+    if "\ufe0f" not in text:
+        char = screen.buffer[0][column]
+        assert char.data == "X" and char.bold and char.reverse
+
+
+def test_bug30_terminal_clipping_keeps_combining_marks():
+    import blessed
+    from pagemark.terminal import TerminalInterface
+
+    terminal = TerminalInterface(
+        blessed.Terminal(kind="xterm-256color", force_styling=True)
+    )
+    assert terminal._compose_display_line("e\u0301X", 1, None) == "e\u0301"
+    assert terminal._compose_display_line("界X", 1, None) == " "
