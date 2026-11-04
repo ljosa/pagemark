@@ -2,7 +2,8 @@
 
 Follow-up: [Cursor movement and formatting audit](CURSOR_FORMATTING_AUDIT.md)
 records nine additional findings (BUG-31 through BUG-39), including a cursor
-regression exposed by the BUG-6 fix.
+regression exposed by the BUG-6 fix. All nine are now fixed and covered by
+default regression tests; see [ARCHITECTURE.md](ARCHITECTURE.md).
 
 Audited on 2026-11-03 at commit `10c4fff1698d2d5046b3cc7c9bbaa1dfd678f82f`
 using Python 3.12.2 on macOS. Findings and source line references below describe

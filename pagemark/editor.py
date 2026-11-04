@@ -399,7 +399,7 @@ class Editor:
         self._last_edit_time = time.monotonic()
         if self._pending_edit_since is None:
             self._pending_edit_since = self._last_edit_time
-        self.view.render()
+        self.model.request_render()
 
     def _draw_error(self):
         """Draw error message when terminal is too narrow."""

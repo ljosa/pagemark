@@ -1,11 +1,7 @@
-"""Opt-in reproductions for CURSOR_FORMATTING_AUDIT.md (BUG-31 through BUG-39).
+"""Editor and terminal regressions for BUG-31 through BUG-39.
 
-Assertions describe the expected behavior, so unresolved bugs fail these tests.
-Run: .venv/bin/python -m pytest tests/repro_cursor_formatting_audit.py -q --tb=short
-
-Editor-command tests use the real keyboard parser, model, and renderer. Clipboard
-reads/writes are stubbed, settings persistence is disabled, and terminal tests
-operate on temporary documents. The filename excludes default pytest discovery.
+Core behavior is real; only terminal dimensions, settings persistence, and
+clipboard I/O are isolated. Terminal tests run on temporary documents.
 """
 
 import os
@@ -242,3 +238,66 @@ def test_bug33_real_terminal_page_up_changes_viewport(tmp_path):
         terminal.press("page_up")
         assert terminal.wait_stable()
         assert terminal.get_line(0).strip() != before
+
+
+def test_edit_and_history_publish_only_complete_frames(editor, monkeypatch):
+    document(editor, ["abc"] * 40)
+    press(editor, "<Shift-DOWN>", 39)
+    frames = []
+    render = editor.view.render
+
+    def observe():
+        frames.append(
+            (
+                tuple(editor.model.paragraphs),
+                editor.undo.can_undo(),
+                editor.undo.can_redo(),
+            )
+        )
+        render()
+
+    monkeypatch.setattr(editor.view, "render", observe)
+    press(editor, "X")
+    assert frames == [(("Xabc",), True, False)]
+    assert editor.modified
+    frames.clear()
+    press(editor, "<Ctrl-z>")
+    assert frames == [(("abc",) * 40, False, True)]
+    frames.clear()
+    press(editor, "<Ctrl-y>")
+    assert frames == [(("Xabc",), True, False)]
+
+
+def test_clipboard_read_failure_preserves_selection_and_document(editor, monkeypatch):
+    document(editor, ["abc"])
+    press(editor, "<Shift-RIGHT>", 2)
+    before = editor._snapshot_state()
+
+    def fail():
+        raise RuntimeError("Clipboard unavailable")
+
+    monkeypatch.setattr(ClipboardManager, "paste_text", fail)
+    with pytest.raises(RuntimeError, match="Clipboard unavailable"):
+        press(editor, "<Ctrl-v>")
+    assert editor._snapshot_state() == before
+    assert not editor.undo.can_undo()
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+def test_tab_replacement_across_wrapped_and_styled_paragraphs(editor, reverse):
+    document(editor, ["a" * 80, "end"])
+    editor.model.styles = [[1] * 80, [2] * 3]
+    editor.model.selection_start = CursorPosition(0, 68)
+    editor.model.selection_end = CursorPosition(1, 1)
+    if reverse:
+        editor.model.selection_start, editor.model.selection_end = (
+            editor.model.selection_end,
+            editor.model.selection_start,
+        )
+    editor.model.cursor_position = editor.model.selection_end
+    editor.view.render()
+    editor.model.caret_style = 3
+    press(editor, "<TAB>")
+    assert editor.model.paragraphs == ["a" * 68 + "  nd"]
+    assert editor.model.styles == [[1] * 68 + [3, 3, 2, 2]]
+    assert editor.model.cursor_position == CursorPosition(0, 70)

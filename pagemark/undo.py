@@ -48,19 +48,19 @@ class UndoManager:
     def undo(self, editor) -> bool:
         if not self._undo_stack:
             return False
-        entry = self._undo_stack.pop()
-        # Apply before snapshot
-        editor._apply_snapshot(entry.before)
-        # Move to redo stack
-        self._redo_stack.append(entry)
+        entry = self._undo_stack[-1]
+        with editor.model.defer_render():
+            editor._apply_snapshot(entry.before)
+            self._undo_stack.pop()
+            self._redo_stack.append(entry)
         return True
 
     def redo(self, editor) -> bool:
         if not self._redo_stack:
             return False
-        entry = self._redo_stack.pop()
-        # Apply after snapshot
-        editor._apply_snapshot(entry.after)
-        # Return entry to undo stack
-        self._undo_stack.append(entry)
+        entry = self._redo_stack[-1]
+        with editor.model.defer_render():
+            editor._apply_snapshot(entry.after)
+            self._redo_stack.pop()
+            self._undo_stack.append(entry)
         return True

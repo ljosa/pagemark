@@ -66,11 +66,8 @@ class TestBoldBugReproduction(unittest.TestCase):
         # Render the view
         view.render()
 
-        # Apply bold directly using the toggle style logic from commands.py
-        # This simulates what happens when the user presses Ctrl-B
-        from pagemark.commands import ToggleStyleCommand
-        toggle_cmd = ToggleStyleCommand(StyleFlags.BOLD)
-        toggle_cmd._toggle_selection_style(model, StyleFlags.BOLD)
+        # Apply the public model operation used by Ctrl-B.
+        model.toggle_selection_style(StyleFlags.BOLD)
 
         # Check that the CORRECT characters are bold
         # The selected characters (select_start to select_end) should be bold

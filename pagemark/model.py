@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import unicodedata
 from abc import ABC, abstractmethod
+from contextlib import contextmanager
 from dataclasses import dataclass
 from enum import IntFlag
 from typing import Callable, Optional, List
 from .clipboard import ClipboardManager
+from .buffer import StyledDocument
 from .text_layout import display_width
 from .coordinates import CellColumn, DocumentPosition
 from .layout import layout_paragraph
@@ -93,6 +95,65 @@ class TextModel:
         # Caret style used when inserting text; updated on cursor moves
         self.caret_style = 0
         self.desired_column = 0
+        self._render_depth = 0
+        self._render_pending = False
+
+    def request_render(self) -> None:
+        if self._render_depth:
+            self._render_pending = True
+        else:
+            self.view.render()
+
+    @contextmanager
+    def defer_render(self):
+        """Publish a frame only after the caller finishes its state transition."""
+        self._render_depth += 1
+        try:
+            yield
+        finally:
+            self._render_depth -= 1
+            if self._render_depth == 0 and self._render_pending:
+                self._render_pending = False
+                self.view.render()
+
+    def _document_buffer(self) -> StyledDocument:
+        self._sync_styles_length()
+        return StyledDocument.from_parts(self.paragraphs, self.styles)
+
+    def _set_buffer(self, document: StyledDocument) -> None:
+        paragraphs = [paragraph.text for paragraph in document.paragraphs]
+        styles = [list(paragraph.styles) for paragraph in document.paragraphs]
+        self.paragraphs, self.styles = paragraphs, styles
+
+    def _replace_range(self, start: DocumentPosition, end: DocumentPosition,
+                       inserted: StyledDocument | None = None) -> None:
+        document, cursor = self._document_buffer().replace(
+            start, end, inserted if inserted is not None else StyledDocument.plain(""),
+        )
+        self._set_buffer(document)
+        self.cursor_position = CursorPosition(cursor.paragraph_index, cursor.character_index)
+
+    def replace_selection(self, text: str, styles: list[list[int]] | None = None) -> None:
+        """Replace selection (or insert at point) as one document operation."""
+        start, end = self._selection_bounds() or (self.navigation_state.cursor,) * 2
+        inserted = (StyledDocument.from_parts(text.split("\n"), styles) if styles is not None
+                    else StyledDocument.plain(text, self.caret_style))
+        self._replace_range(start, end, inserted)
+        self.clear_selection()
+        self.request_render()
+
+    def _selection_bounds(self) -> tuple[DocumentPosition, DocumentPosition] | None:
+        if self.selection_start is None or self.selection_end is None:
+            return None
+        start = DocumentPosition(self.selection_start.paragraph_index, self.selection_start.character_index)
+        end = DocumentPosition(self.selection_end.paragraph_index, self.selection_end.character_index)
+        return (start, end) if start <= end else (end, start)
+
+    def toggle_selection_style(self, flag: int) -> None:
+        bounds = self._selection_bounds()
+        if bounds is not None:
+            self._set_buffer(self._document_buffer().toggle_style(*bounds, flag))
+            self.request_render()
 
     def _sync_styles_length(self):
         """Ensure styles list mirrors paragraphs lengths (internal safety).
@@ -150,7 +211,7 @@ class TextModel:
                                 if state.anchor else None)
         self.update_selection_end()
         if render:
-            self.view.render()
+            self.request_render()
 
     def _finish_cursor_move(self) -> None:
         self.relocate_cursor(self.navigation_state.cursor)
@@ -232,96 +293,23 @@ class TextModel:
         return m
 
     def insert_text(self, text: str, position: Optional[CursorPosition] = None):
-        if position is None:
-            position = self.cursor_position
-
-        before_view = position.paragraph_index < self.view.start_paragraph_index
-        in_view = self.view.start_paragraph_index <= position.paragraph_index < self.view.end_paragraph_index
-
-        paragraphs = text.split("\n")
-        para_idx = position.paragraph_index
-        char_idx = position.character_index
-        current_paragraph = self.paragraphs[para_idx]
-        before_cursor = current_paragraph[:char_idx]
-        after_cursor = current_paragraph[char_idx:]
-
-        # Prepare styles for insertion
-        self._sync_styles_length()
-        curr_styles = self.styles[para_idx]
-        before_styles = curr_styles[:char_idx]
-        after_styles = curr_styles[char_idx:]
-        insert_styles_segments = [ [self.caret_style]*len(seg) for seg in paragraphs ]
-
-        # Merge text
-        paragraphs[0] = before_cursor + paragraphs[0]
-        paragraphs[-1] += after_cursor
-        new_paras = (
-            self.paragraphs[: para_idx]
-            + paragraphs
-            + self.paragraphs[para_idx + 1 :]
-        )
-        # Merge styles
-        insert_styles_segments[0] = before_styles + insert_styles_segments[0]
-        insert_styles_segments[-1] = insert_styles_segments[-1] + after_styles
-        new_styles = (
-            self.styles[: para_idx]
-            + insert_styles_segments
-            + self.styles[para_idx + 1 :]
-        )
-        self.paragraphs = new_paras
-        self.styles = new_styles
-        self.cursor_position.paragraph_index = para_idx + len(paragraphs) - 1
-        self.cursor_position.character_index = len(paragraphs[-1]) - len(after_cursor)
-        # After inserting newline, styles persist across newlines by design (caret_style unchanged)
-
-        if before_view:
-            self.view.start_paragraph_index += len(paragraphs) - 1
-            self.view.end_paragraph_index += len(paragraphs) - 1
-        elif in_view:
-            self.view.render()
+        position = position or self.cursor_position
+        point = DocumentPosition(position.paragraph_index, position.character_index)
+        self._replace_range(point, point, StyledDocument.plain(text, self.caret_style))
+        self.request_render()
 
     def backspace(self) -> None:
-        """Delete character before cursor, maintaining styles."""
-        para_idx = self.cursor_position.paragraph_index
-        char_idx = self.cursor_position.character_index
-        if char_idx > 0:
-            para = self.paragraphs[para_idx]
-            self.paragraphs[para_idx] = para[:char_idx-1] + para[char_idx:]
-            style_mask = self.styles[para_idx]
-            self.styles[para_idx] = style_mask[:char_idx-1] + style_mask[char_idx:]
-            self.cursor_position.character_index -= 1
-        elif para_idx > 0:
+        point = self.navigation_state.cursor
+        if point.character_index > 0:
+            self._replace_range(DocumentPosition(point.paragraph_index, point.character_index - 1), point)
+        elif point.paragraph_index > 0:
             self._join_with_previous_paragraph()
-        self.view.render()
+        self.request_render()
 
     def _insert_text_with_styles(self, parts: list[str], parts_styles: list[list[int]]):
-        before_view = self.cursor_position.paragraph_index < self.view.start_paragraph_index
-        in_view = self.view.start_paragraph_index <= self.cursor_position.paragraph_index < self.view.end_paragraph_index
-        para_idx = self.cursor_position.paragraph_index
-        char_idx = self.cursor_position.character_index
-        current_paragraph = self.paragraphs[para_idx]
-        before_cursor = current_paragraph[:char_idx]
-        after_cursor = current_paragraph[char_idx:]
-        self._sync_styles_length()
-        curr_styles = self.styles[para_idx]
-        before_styles = curr_styles[:char_idx]
-        after_styles = curr_styles[char_idx:]
-        # Merge
-        parts = parts[:]
-        parts_styles = parts_styles[:]
-        parts[0] = before_cursor + parts[0]
-        parts_styles[0] = before_styles + parts_styles[0]
-        parts[-1] = parts[-1] + after_cursor
-        parts_styles[-1] = parts_styles[-1] + after_styles
-        self.paragraphs = self.paragraphs[:para_idx] + parts + self.paragraphs[para_idx+1:]
-        self.styles = self.styles[:para_idx] + parts_styles + self.styles[para_idx+1:]
-        self.cursor_position.paragraph_index = para_idx + len(parts) - 1
-        self.cursor_position.character_index = len(parts[-1]) - len(after_cursor)
-        if before_view:
-            self.view.start_paragraph_index += len(parts) - 1
-            self.view.end_paragraph_index += len(parts) - 1
-        elif in_view:
-            self.view.render()
+        point = self.navigation_state.cursor
+        self._replace_range(point, point, StyledDocument.from_parts(parts, parts_styles))
+        self.request_render()
 
     def right_char(self):
         if self.cursor_position.character_index < len(self.paragraphs[self.cursor_position.paragraph_index]):
@@ -496,65 +484,27 @@ class TextModel:
             old_styles[word1.start():word1.end()] +
             old_styles[word2.end():]
         )
-        self.paragraphs[para_idx] = new_paragraph
-        self.styles[para_idx] = new_styles
+        self._replace_range(DocumentPosition(para_idx, 0), DocumentPosition(para_idx, len(paragraph)),
+                            StyledDocument.from_parts([new_paragraph], [new_styles]))
         
         # Move cursor to end of transposed region (total length is unchanged)
         self.cursor_position.character_index = word2.end()
-        self.view.render()
+        self.request_render()
     
     def transpose_chars(self):
-        """Transpose character before cursor with character after cursor.
-        
-        Emacs behavior: If at end of line, transpose the two chars before cursor.
-        If at beginning of line, transpose first two chars.
-        """
-        para_idx = self.cursor_position.paragraph_index
-        paragraph = self.paragraphs[para_idx]
-        char_idx = self.cursor_position.character_index
-        para_len = len(paragraph)
-        
-        if para_len < 2:
-            # Need at least 2 characters to transpose
+        """Swap adjacent codepoints and their styles, moving past the pair."""
+        pi, ci = self.cursor_position.paragraph_index, self.cursor_position.character_index
+        paragraph = self.paragraphs[pi]
+        if len(paragraph) < 2:
             return
-        
-        if char_idx == 0:
-            # At beginning, transpose first two chars
-            self.paragraphs[para_idx] = paragraph[1] + paragraph[0] + paragraph[2:]
-            style_mask = self.styles[para_idx]
-            self.styles[para_idx] = style_mask[1:2] + style_mask[0:1] + style_mask[2:]
-            self.cursor_position.character_index = 2
-        elif char_idx >= para_len:
-            # At end, transpose last two chars
-            self.paragraphs[para_idx] = paragraph[:-2] + paragraph[-1] + paragraph[-2]
-            style_mask = self.styles[para_idx]
-            self.styles[para_idx] = style_mask[:-2] + style_mask[-1:] + style_mask[-2:-1]
-            # Cursor stays at end
-        else:
-            # In middle, transpose char before and after cursor
-            if char_idx == 1:
-                # Special case when cursor is at position 1
-                self.paragraphs[para_idx] = paragraph[1] + paragraph[0] + paragraph[2:]
-                style_mask = self.styles[para_idx]
-                self.styles[para_idx] = style_mask[1:2] + style_mask[0:1] + style_mask[2:]
-            else:
-                self.paragraphs[para_idx] = (
-                    paragraph[:char_idx-1] + 
-                    paragraph[char_idx] + 
-                    paragraph[char_idx-1] + 
-                    paragraph[char_idx+1:]
-                )
-                style_mask = self.styles[para_idx]
-                self.styles[para_idx] = (
-                    style_mask[:char_idx-1] +
-                    style_mask[char_idx:char_idx+1] +
-                    style_mask[char_idx-1:char_idx] +
-                    style_mask[char_idx+1:]
-                )
-            self.cursor_position.character_index = min(char_idx + 1, para_len)
-        
-        self.view.render()
-    
+        first = min(max(0, ci - 1), len(paragraph) - 2)
+        self._sync_styles_length()
+        text = paragraph[first:first + 2][::-1]
+        styles = self.styles[pi][first:first + 2][::-1]
+        self._replace_range(DocumentPosition(pi, first), DocumentPosition(pi, first + 2),
+                            StyledDocument.from_parts([text], [styles]))
+        self.request_render()
+
     def center_line(self) -> bool:
         """Center the current paragraph if it fits on one line.
 
@@ -571,10 +521,8 @@ class TextModel:
 
         # Don't center empty lines
         if not stripped:
-            self.paragraphs[para_idx] = ""
-            self.styles[para_idx] = []
-            self.cursor_position.character_index = 0
-            self.view.render()
+            self._replace_range(DocumentPosition(para_idx, 0), DocumentPosition(para_idx, len(paragraph)))
+            self.request_render()
             return True
 
         # Check if paragraph would wrap (multi-line) or is at max width
@@ -589,8 +537,10 @@ class TextModel:
         self._sync_styles_length()
         old_leading = len(paragraph) - len(paragraph.lstrip())
         content_styles = self.styles[para_idx][old_leading:old_leading + len(stripped)]
-        self.paragraphs[para_idx] = centered
-        self.styles[para_idx] = [0] * spaces_needed + content_styles
+        original_column = self.cursor_position.character_index
+        self._replace_range(DocumentPosition(para_idx, 0), DocumentPosition(para_idx, len(paragraph)),
+                            StyledDocument.from_parts([centered], [[0] * spaces_needed + content_styles]))
+        self.cursor_position.character_index = original_column
 
         # Adjust cursor position to account for added spaces
         # If cursor was at the beginning, keep it at the beginning of the centered text
@@ -604,60 +554,26 @@ class TextModel:
                 self.cursor_position.character_index - old_leading + spaces_needed,
                 len(centered))
 
-        self.view.render()
+        self.request_render()
         return True
 
 
     def _join_with_previous_paragraph(self):
-        """Join current paragraph with previous one, positioning cursor at join point.
-        
-        Returns:
-            True if join was performed, False if at document start
-        """
-        if self.cursor_position.paragraph_index == 0:
+        pi = self.cursor_position.paragraph_index
+        if pi == 0:
             return False
-            
-        prev_idx = self.cursor_position.paragraph_index - 1
-        prev_para = self.paragraphs[prev_idx]
-        curr_para = self.paragraphs[self.cursor_position.paragraph_index]
-        
-        # Combine paragraphs
-        self.paragraphs[prev_idx] = prev_para + curr_para
-        del self.paragraphs[self.cursor_position.paragraph_index]
-        # Combine styles
-        prev_styles = self.styles[prev_idx]
-        curr_styles = self.styles[self.cursor_position.paragraph_index]
-        self.styles[prev_idx] = prev_styles + curr_styles
-        del self.styles[self.cursor_position.paragraph_index]
-        
-        # Move cursor to join point
-        self.cursor_position.paragraph_index = prev_idx
-        self.cursor_position.character_index = len(prev_para)
-        
+        self._replace_range(DocumentPosition(pi - 1, len(self.paragraphs[pi - 1])), DocumentPosition(pi, 0))
         return True
-    
+
     def _join_with_next_paragraph(self):
-        """Join current paragraph with next one, keeping cursor position.
-        
-        Returns:
-            True if join was performed, False if at document end
-        """
-        if self.cursor_position.paragraph_index + 1 >= len(self.paragraphs):
+        point = self.navigation_state.cursor
+        pi = point.paragraph_index
+        if pi + 1 >= len(self.paragraphs):
             return False
-            
-        para_idx = self.cursor_position.paragraph_index
-        curr_para = self.paragraphs[para_idx]
-        next_para = self.paragraphs[para_idx + 1]
-        
-        # Combine paragraphs
-        self.paragraphs[para_idx] = curr_para + next_para
-        del self.paragraphs[para_idx + 1]
-        # Combine styles
-        self.styles[para_idx] = self.styles[para_idx] + self.styles[para_idx + 1]
-        del self.styles[para_idx + 1]
-        
+        self._replace_range(DocumentPosition(pi, len(self.paragraphs[pi])), DocumentPosition(pi + 1, 0))
+        self.cursor_position = CursorPosition(pi, point.character_index)
         return True
-    
+
     def right_word(self):
         """Move cursor forward by one word (Emacs-style)."""
         para = self.paragraphs[self.cursor_position.paragraph_index]
@@ -756,11 +672,10 @@ class TextModel:
         for index, char in enumerate(word):
             converted = char.upper() if capitalize and index == 0 else convert(char)
             replacement_styles.extend([mask[start + index]] * len(converted))
-        self.paragraphs[para_idx] = paragraph[:start] + replacement + paragraph[end:]
-        self.styles[para_idx] = mask[:start] + replacement_styles + mask[end:]
-        self.cursor_position.character_index = start + len(replacement)
+        self._replace_range(DocumentPosition(para_idx, start), DocumentPosition(para_idx, end),
+                            StyledDocument.from_parts([replacement], [replacement_styles]))
         self._update_caret_style_from_position()
-        self.view.render()
+        self.request_render()
 
     def kill_word(self):
         """Delete from cursor to end of current/next word (Emacs M-d)."""
@@ -780,14 +695,13 @@ class TextModel:
                 end_pos += 1
             
             # Delete from cursor to end_pos
-            self.paragraphs[self.cursor_position.paragraph_index] = para[:pos] + para[end_pos:]
-            style_mask = self.styles[self.cursor_position.paragraph_index]
-            self.styles[self.cursor_position.paragraph_index] = style_mask[:pos] + style_mask[end_pos:]
+            pi = self.cursor_position.paragraph_index
+            self._replace_range(DocumentPosition(pi, pos), DocumentPosition(pi, end_pos))
         elif self.cursor_position.paragraph_index < len(self.paragraphs) - 1:
             # At end of paragraph, join with next paragraph
             self._join_with_next_paragraph()
         
-        self.view.render()
+        self.request_render()
     
     def backward_kill_word(self):
         """Delete from cursor back to beginning of previous word (Emacs-style)."""
@@ -808,33 +722,23 @@ class TextModel:
                 pos -= 1
             
             # Delete from pos to original position
-            self.paragraphs[self.cursor_position.paragraph_index] = para[:pos] + para[original_pos:]
-            style_mask = self.styles[self.cursor_position.paragraph_index]
-            self.styles[self.cursor_position.paragraph_index] = style_mask[:pos] + style_mask[original_pos:]
-            self.cursor_position.character_index = pos
+            pi = self.cursor_position.paragraph_index
+            self._replace_range(DocumentPosition(pi, pos), DocumentPosition(pi, original_pos))
         elif self.cursor_position.paragraph_index > 0:
             # At start of paragraph, join with previous paragraph
             self._join_with_previous_paragraph()
         
-        self.view.render()
+        self.request_render()
     
     def delete_char(self):
-        """Delete character at cursor position (Emacs-style Ctrl-D)."""
-        para = self.paragraphs[self.cursor_position.paragraph_index]
-        pos = self.cursor_position.character_index
-        
-        if pos < len(para):
-            # Delete character at cursor
-            self.paragraphs[self.cursor_position.paragraph_index] = para[:pos] + para[pos+1:]
-            style_mask = self.styles[self.cursor_position.paragraph_index]
-            self.styles[self.cursor_position.paragraph_index] = style_mask[:pos] + style_mask[pos+1:]
-        elif self.cursor_position.paragraph_index + 1 < len(self.paragraphs):
-            # At end of paragraph, join with next paragraph
+        point = self.navigation_state.cursor
+        pi, ci = point.paragraph_index, point.character_index
+        if ci < len(self.paragraphs[pi]):
+            self._replace_range(point, DocumentPosition(pi, ci + 1))
+        else:
             self._join_with_next_paragraph()
-        # else: at end of document, do nothing
-        
-        self.view.render()
-    
+        self.request_render()
+
     def _get_visual_line_info(self):
         """Get information about the current visual line.
 
@@ -904,123 +808,27 @@ class TextModel:
             )
     
     def get_selected_text(self) -> str:
-        """Get the currently selected text."""
-        if self.selection_start is None or self.selection_end is None:
+        bounds = self._selection_bounds()
+        if bounds is None:
             return ""
-        
-        # Ensure start comes before end
-        start = self.selection_start
-        end = self.selection_end
-        if (start.paragraph_index > end.paragraph_index or 
-            (start.paragraph_index == end.paragraph_index and 
-             start.character_index > end.character_index)):
-            start, end = end, start
-        
-        # Single paragraph selection
-        if start.paragraph_index == end.paragraph_index:
-            para = self.paragraphs[start.paragraph_index]
-            return para[start.character_index:end.character_index]
-        
-        # Multi-paragraph selection
-        result = []
-        for i in range(start.paragraph_index, end.paragraph_index + 1):
-            para = self.paragraphs[i]
-            if i == start.paragraph_index:
-                result.append(para[start.character_index:])
-            elif i == end.paragraph_index:
-                result.append(para[:end.character_index])
-            else:
-                result.append(para)
-        return '\n'.join(result)
-    
+        return "\n".join(paragraph.text for paragraph in self._document_buffer().slice(*bounds).paragraphs)
+
     def _get_selected_styles(self):
-        """Get styles for the currently selected text.
-        
-        Returns:
-            List of style masks for each paragraph in the selection
-        """
-        if self.selection_start is None or self.selection_end is None:
+        bounds = self._selection_bounds()
+        if bounds is None:
             return None
-        
-        # Ensure start comes before end
-        start = self.selection_start
-        end = self.selection_end
-        if (start.paragraph_index > end.paragraph_index or 
-            (start.paragraph_index == end.paragraph_index and 
-             start.character_index > end.character_index)):
-            start, end = end, start
-        
-        # Single paragraph selection
-        if start.paragraph_index == end.paragraph_index:
-            style_mask = self.styles[start.paragraph_index]
-            return [style_mask[start.character_index:end.character_index]]
-        
-        # Multi-paragraph selection
-        result = []
-        for i in range(start.paragraph_index, end.paragraph_index + 1):
-            style_mask = self.styles[i]
-            if i == start.paragraph_index:
-                result.append(style_mask[start.character_index:])
-            elif i == end.paragraph_index:
-                result.append(style_mask[:end.character_index])
-            else:
-                result.append(style_mask[:])
-        return result
-    
+        return [list(paragraph.styles) for paragraph in self._document_buffer().slice(*bounds).paragraphs]
+
     def delete_selection(self) -> bool:
-        """Delete the selected range, returning whether it was nonempty."""
-        if self.selection_start is None or self.selection_end is None:
+        bounds = self._selection_bounds()
+        if bounds is None or bounds[0] == bounds[1]:
             self.clear_selection()
             return False
-        
-        # Ensure start comes before end
-        start = self.selection_start
-        end = self.selection_end
-        if (start.paragraph_index > end.paragraph_index or 
-            (start.paragraph_index == end.paragraph_index and 
-             start.character_index > end.character_index)):
-            start, end = end, start
-        
-        if start == end:
-            self.clear_selection()
-            return False
-
-        # Ensure styles mirror structure
-        self._sync_styles_length()
-
-        # Single paragraph deletion
-        if start.paragraph_index == end.paragraph_index:
-            para = self.paragraphs[start.paragraph_index]
-            self.paragraphs[start.paragraph_index] = (
-                para[:start.character_index] + para[end.character_index:]
-            )
-            style_mask = self.styles[start.paragraph_index]
-            self.styles[start.paragraph_index] = (
-                style_mask[:start.character_index] + style_mask[end.character_index:]
-            )
-            self.cursor_position = CursorPosition(start.paragraph_index, start.character_index)
-        else:
-            # Multi-paragraph deletion
-            first_para = self.paragraphs[start.paragraph_index][:start.character_index]
-            last_para = self.paragraphs[end.paragraph_index][end.character_index:]
-            first_styles = self.styles[start.paragraph_index][:start.character_index]
-            last_styles = self.styles[end.paragraph_index][end.character_index:]
-            
-            # Combine first and last parts
-            self.paragraphs[start.paragraph_index] = first_para + last_para
-            self.styles[start.paragraph_index] = first_styles + last_styles
-            
-            # Delete intermediate paragraphs
-            for _ in range(end.paragraph_index - start.paragraph_index):
-                del self.paragraphs[start.paragraph_index + 1]
-                del self.styles[start.paragraph_index + 1]
-            
-            self.cursor_position = CursorPosition(start.paragraph_index, start.character_index)
-        
+        self._replace_range(*bounds)
         self.clear_selection()
-        self.view.render()
+        self.request_render()
         return True
-    
+
     def copy_selection(self):
         """Copy selected text to system clipboard."""
         selected = self.get_selected_text()
@@ -1039,20 +847,12 @@ class TextModel:
         return False
     
     def paste(self):
-        """Paste from system clipboard at cursor position, replacing any selection."""
-        if self.selection_start is not None:
-            self.delete_selection()
-
-        # Get content from system clipboard
+        """Read and sanitize external content before changing the document."""
         text, styles = ClipboardManager.paste_text()
         text, styles = self._sanitize_clipboard_content(text, styles)
-        if text:
-            # If styled clipboard present, insert with styles
-            if styles is not None:
-                parts = text.split('\n')
-                self._insert_text_with_styles(parts, styles)
-            else:
-                self.insert_text(text)
+        # Preserve the existing empty-paste selection replacement policy.
+        if text or self.selection_start is not None:
+            self.replace_selection(text, styles)
 
     @staticmethod
     def _keep_insertable_char(ch: str) -> Optional[str]:
@@ -1115,15 +915,13 @@ class TextModel:
             if para_idx + 1 < len(self.paragraphs):
                 self._join_with_next_paragraph()
             # else: at end of document, nothing to do
-            self.view.render()
+            self.request_render()
             return
 
         # Delete to the end of the current visual line
         visual_line_end = mapper.line_end(line_index)
         if char_idx < visual_line_end:
-            self.paragraphs[para_idx] = para[:char_idx] + para[visual_line_end:]
-            style_mask = self.styles[para_idx]
-            self.styles[para_idx] = style_mask[:char_idx] + style_mask[visual_line_end:]
+            self._replace_range(DocumentPosition(para_idx, char_idx), DocumentPosition(para_idx, visual_line_end))
             
             # After deleting the last visual line of a multi-line paragraph, if we're now
             # at the end of the paragraph and there's a next paragraph,
@@ -1135,7 +933,7 @@ class TextModel:
                 self.cursor_position = CursorPosition(para_idx + 1, 0)
         # else: no change
 
-        self.view.render()
+        self.request_render()
 
 
 class DocumentModel:

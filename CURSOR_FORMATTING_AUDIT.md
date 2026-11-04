@@ -3,7 +3,14 @@
 Reviewed on 2026-11-03 at commit
 `dffa61c5550183f4c75450514c598f87aee44056`, after the fixes in
 [BUG_AUDIT.md](BUG_AUDIT.md). **Nine additional confirmed findings: BUG-31
-through BUG-39.** Application code was not changed during this review.
+through BUG-39.** Application code was not changed during the original review.
+
+**Status, 2026-11-04:** All nine findings are fixed. Layout now owns source,
+style, and caret mappings; typed viewport rows own scrolling; navigation owns
+preferred-column and insertion-style transitions; styled range replacement
+owns document edits. The original reproductions now run in the default suite.
+See [ARCHITECTURE.md](ARCHITECTURE.md) for contracts and validation. The evidence
+and source line numbers below describe the original audited revision.
 
 The most serious finding is a crash when deleting selected paragraphs after
 scrolling, or undoing a multiline paste. BUG-32 is a cursor regression exposed
@@ -15,16 +22,17 @@ separator between a full line and the next wrapped word.
 Run from the repository root:
 
 ```sh
-.venv/bin/python -m pytest tests/repro_cursor_formatting_audit.py -q --tb=short
+.venv/bin/python -m pytest tests/test_cursor_formatting_regressions.py -q --tb=short
 ```
 
-Observed: **26 failed, 2 passed in 5.89 seconds** on Python 3.12.2/macOS.
-Failures are intentional assertions of the expected behavior, grouped under
+Originally observed: **26 failed, 2 passed in 5.89 seconds** on Python 3.12.2/macOS.
+The original failures asserted the expected behavior, grouped under
 nine root causes. The passing controls are ordinary Down preserving the
 column (BUG-34) and backward selection followed by Tab (BUG-39).
 
-The [reproduction file](tests/repro_cursor_formatting_audit.py) is opt-in,
-so it does not add failing cases to normal test discovery. Most cases use
+The [regression file](tests/test_cursor_formatting_regressions.py) now participates
+in normal test discovery. Its 28 original cases pass, with four additional
+transaction and range-replacement checks. Most cases use
 real keyboard parsing, editor commands, model, and view with a stub terminal.
 Clipboard access is stubbed and settings persistence disabled. Two tests
 launch the actual application in a pseudo-terminal: the deletion crash and

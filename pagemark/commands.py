@@ -117,29 +117,20 @@ class EditCommand(EditorCommand):
     """Base class for editing commands."""
     
     def execute(self, editor: 'Editor', key_event: 'KeyEvent') -> bool:
-        """Editing commands modify the document."""
-        # Capture snapshot before edit
+        from .undo import UndoEntry
+
         before = editor._snapshot_state()
-        self._edit(editor, key_event)
-        # Capture snapshot after edit and push to undo stack
-        after = editor._snapshot_state()
-        # A command that left the document unchanged (cut with no selection,
-        # failed center, caret-style toggle, ...) must not mark the buffer
-        # modified or push a no-op undo entry.
-        doc_changed = (before.paragraphs != after.paragraphs
-                       or before.styles != after.styles)
-        if doc_changed:
-            try:
-                from .undo import UndoEntry
+        with editor.model.defer_render():
+            self._edit(editor, key_event)
+            editor.view.update_desired_x()
+            after = editor._snapshot_state()
+            doc_changed = (before.paragraphs != after.paragraphs
+                           or before.styles != after.styles)
+            if doc_changed:
                 editor.undo.push(UndoEntry(before=before, after=after))
-            except Exception:
-                # Justification: Undo persistence should never break editing.
-                # We intentionally catch any exception to ensure edits proceed;
-                # failures here only affect the ability to undo, not document integrity.
-                pass
-        editor.view.update_desired_x()
+                editor._update_modified()
         return doc_changed
-    
+
     @abstractmethod
     def _edit(self, editor: 'Editor', key_event: 'KeyEvent'):
         """Perform the edit."""
@@ -175,22 +166,15 @@ class ForwardKillWordCommand(EditCommand):
 
 class InsertNewlineCommand(EditCommand):
     def _edit(self, editor, key_event):
-        editor.model.delete_selection()
-        editor.model.insert_text('\n')
+        editor.model.replace_selection('\n')
 
 
 class TabCommand(EditCommand):
     def _edit(self, editor, key_event):
-        # Get current visual column position
-        visual_col = editor.view.visual_cursor_x
-        # Calculate spaces to next tab stop (multiple of 5)
-        next_stop = ((visual_col // 5) + 1) * 5
-        spaces_to_insert = next_stop - visual_col
-        # Delete any selection first
-        if editor.model.selection_start is not None:
-            editor.model.delete_selection()
-        # Insert the spaces
-        editor.model.insert_text(' ' * spaces_to_insert)
+        bounds = editor.model._selection_bounds()
+        point = bounds[0] if bounds else editor.model.navigation_state.cursor
+        column = editor.model.cursor_column(point)
+        editor.model.replace_selection(' ' * (5 - column % 5))
 
 
 class InsertTextCommand(EditCommand):
@@ -201,10 +185,7 @@ class InsertTextCommand(EditCommand):
         kept = [c for c in map(editor.model._keep_insertable_char, key_event.value)
                 if c is not None]
         if kept:
-            # Delete any selection first
-            if editor.model.selection_start is not None:
-                editor.model.delete_selection()
-            editor.model.insert_text(''.join(kept))
+            editor.model.replace_selection(''.join(kept))
 
 
 class SystemCommand(EditorCommand):
@@ -502,99 +483,9 @@ class ToggleStyleCommand(EditCommand):
 
         # Apply to selection if present; otherwise toggle caret style
         if model.selection_start is not None and model.selection_end is not None:
-            self._toggle_selection_style(model, flag)
-            # Styles changed in place; re-render so the frame's style lines
-            # reflect the toggle immediately instead of after the next edit.
-            editor.view.render()
+            model.toggle_selection_style(flag)
         else:
-            # Toggle caret style bit
             model.caret_style ^= flag
-    
-    def _toggle_selection_style(self, model, flag: int):
-        """Toggle style flag for the current selection."""
-        # Normalize selection
-        start = model.selection_start
-        end = model.selection_end
-        if (start.paragraph_index > end.paragraph_index or
-            (start.paragraph_index == end.paragraph_index and start.character_index > end.character_index)):
-            start, end = end, start
-        
-        model._sync_styles_length()
-        
-        # Check if all selected characters have the flag
-        all_have = self._check_all_have_flag(model, start, end, flag)
-        
-        # Apply the toggle (if all have it, clear; otherwise set)
-        self._apply_flag_to_selection(model, start, end, flag, not all_have)
-    
-    def _check_all_have_flag(self, model, start, end, flag: int) -> bool:
-        """Check if all characters in selection have the flag."""
-        if start.paragraph_index == end.paragraph_index:
-            # Single paragraph
-            styles = model.styles[start.paragraph_index]
-            end_idx = min(end.character_index, len(styles))
-            for i in range(start.character_index, end_idx):
-                if (styles[i] & flag) == 0:
-                    return False
-        else:
-            # Multiple paragraphs
-            # First paragraph (partial)
-            styles = model.styles[start.paragraph_index]
-            for i in range(start.character_index, len(styles)):
-                if (styles[i] & flag) == 0:
-                    return False
-            
-            # Middle paragraphs (complete)
-            for para_idx in range(start.paragraph_index + 1, end.paragraph_index):
-                styles = model.styles[para_idx]
-                for i in range(len(styles)):
-                    if (styles[i] & flag) == 0:
-                        return False
-            
-            # Last paragraph (partial)
-            styles = model.styles[end.paragraph_index]
-            end_idx = min(end.character_index, len(styles))
-            for i in range(end_idx):
-                if (styles[i] & flag) == 0:
-                    return False
-        
-        return True
-    
-    def _apply_flag_to_selection(self, model, start, end, flag: int, set_flag: bool):
-        """Apply or clear the flag for all characters in selection."""
-        if start.paragraph_index == end.paragraph_index:
-            # Single paragraph
-            self._apply_flag_to_range(model, start.paragraph_index, 
-                                     start.character_index, end.character_index,
-                                     flag, set_flag)
-        else:
-            # Multiple paragraphs
-            # First paragraph (partial)
-            self._apply_flag_to_range(model, start.paragraph_index,
-                                     start.character_index, len(model.styles[start.paragraph_index]),
-                                     flag, set_flag)
-            
-            # Middle paragraphs (complete)
-            for para_idx in range(start.paragraph_index + 1, end.paragraph_index):
-                self._apply_flag_to_range(model, para_idx,
-                                        0, len(model.styles[para_idx]),
-                                        flag, set_flag)
-            
-            # Last paragraph (partial)
-            self._apply_flag_to_range(model, end.paragraph_index,
-                                     0, end.character_index,
-                                     flag, set_flag)
-    
-    def _apply_flag_to_range(self, model, para_idx: int, start_idx: int, end_idx: int,
-                            flag: int, set_flag: bool):
-        """Apply or clear flag for a character range within a paragraph."""
-        styles = model.styles[para_idx]
-        end_idx = min(end_idx, len(styles))
-        for i in range(start_idx, end_idx):
-            if set_flag:
-                styles[i] |= flag
-            else:
-                styles[i] &= ~flag
 
 
 class ToggleBoldCommand(ToggleStyleCommand):

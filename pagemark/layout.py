@@ -346,7 +346,7 @@ def layout_paragraph(paragraph: str, width: int) -> ParagraphLayout:
     start = 0
     for index, (text, end) in enumerate(zip(lines, counts)):
         prefix = indent if index else 0
-        sources = [None] * prefix
+        sources: list[Optional[SourceOffset]] = [None] * prefix
         for offset in range(start, end):
             sources.extend(
                 [SourceOffset(offset)] * (2 if paragraph[offset] == "—" else 1)
