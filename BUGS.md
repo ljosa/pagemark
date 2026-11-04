@@ -20,6 +20,9 @@ content and styles and compares them after edits and undo/redo.
 
 ## BUG-6: Word wrap is one character too aggressive
 
+**Status:** Fixed (2026-11-03). Exactly fitting words stay on the line; an
+empty continuation preserves the established full-width cursor behavior.
+
 **Severity:** Low
 **Files:** `pagemark/view.py:361`
 

@@ -14,6 +14,7 @@ from pagemark.keyboard import KeyType
 from pagemark.editor import Editor
 from pagemark.keyboard import KeyEvent
 from pagemark.model import CursorPosition, TextModel
+from pagemark.view import render_paragraph
 from pagemark.session import SessionKeys, SessionManager
 from pagemark.settings_persistence import SettingsPersistence
 
@@ -482,3 +483,34 @@ def test_bug5_failed_save_does_not_move_clean_baseline(editor, tmp_path):
     assert editor.modified
     press(editor, KeyType.CTRL, "z")
     assert not editor.modified
+
+
+def test_existing_bug6_word_fitting_exactly_does_not_wrap():
+    text = "a " + "b" * 63
+    assert len(text) == 65
+    lines, _ = render_paragraph(text, 65)
+    assert lines == [text, ""]  # Empty continuation is for the cursor.
+
+
+def test_bug6_full_line_cursor_navigation_and_following_paragraph(editor):
+    text = "a " + "b" * 63
+    editor.model = TextModel(editor.view, [text, "next"])
+    editor.model.cursor_position = CursorPosition(0, len(text))
+    editor.view.render()
+    editor.view.update_desired_x()
+    assert editor.view.lines[:3] == [text, "", "next"]
+    assert (editor.view.visual_cursor_y, editor.view.visual_cursor_x) == (1, 0)
+    press(editor, KeyType.SPECIAL, "left")
+    assert (editor.view.visual_cursor_y, editor.view.visual_cursor_x) == (0, 64)
+    press(editor, KeyType.SPECIAL, "down")
+    assert editor.model.cursor_position == CursorPosition(0, 65)
+    assert editor.view.visual_cursor_y == 1
+    press(editor, KeyType.SPECIAL, "down")
+    assert editor.model.cursor_position.paragraph_index == 1
+
+
+def test_bug6_exact_fit_before_more_words_does_not_add_blank_line():
+    text = "a " + "b" * 63 + " next"
+    lines, counts = render_paragraph(text, 65)
+    assert lines == [text[:65], "next"]
+    assert counts == [66, len(text)]

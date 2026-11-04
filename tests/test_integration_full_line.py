@@ -105,16 +105,16 @@ def test_insert_width_with_spaces():
 
     v.render()
 
-    # The last word should wrap
+    # The text fits exactly; only the cursor moves to the empty continuation.
     assert len(v.lines) == 2
-    assert v.lines[0] == "Hello World Test Line"
-    assert v.lines[1] == "123"
+    assert v.lines[0] == text
+    assert v.lines[1] == ""
 
     # Cursor at end
     assert m.cursor_position.character_index == 25
 
     assert v.visual_cursor_y == 1
-    assert v.visual_cursor_x == 3
+    assert v.visual_cursor_x == 0
 
 
 def test_word_at_exact_boundary():
@@ -132,15 +132,15 @@ def test_word_at_exact_boundary():
 
     v.render()
 
-    # Should wrap
+    # Keep the word on the full-width line, with a cursor continuation.
     assert len(v.lines) == 2
-    assert v.lines[0] == "Hello"
-    assert v.lines[1] == "beautiful"
+    assert v.lines[0] == text
+    assert v.lines[1] == ""
 
     # Cursor position after "beautiful"
     assert m.cursor_position.character_index == 15  # 15 + 1 space + 5 chars
     assert v.visual_cursor_y == 1
-    assert v.visual_cursor_x == 9
+    assert v.visual_cursor_x == 0
 
 
 def test_multiple_full_width_lines():

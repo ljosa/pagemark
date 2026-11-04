@@ -346,7 +346,7 @@ def render_paragraph(paragraph: str, num_columns: int) -> tuple[list[str], list[
                 current_line += " "
         else:
             # Normal word - check if it fits
-            if visual_width(current_line) + 1 + visual_width(word) < width:
+            if visual_width(current_line) + 1 + visual_width(word) <= width:
                 current_line += " " + word
             else:
                 # Commit current line
@@ -374,6 +374,11 @@ def render_paragraph(paragraph: str, num_columns: int) -> tuple[list[str], list[
     lines.append(get_line_prefix(line_index) + current_line)
     char_count += len(current_line)
     cumulative_counts.append(char_count)
+    # A completely full final line needs a continuation position for the
+    # cursor, just like a long word split exactly at the wrapping boundary.
+    if visual_width(current_line) == available_width_for_line(line_index):
+        lines.append(get_line_prefix(line_index + 1))
+        cumulative_counts.append(char_count)
 
     # Replace em-dashes with double hyphens for display
     lines = [line.replace('—', '--') for line in lines]

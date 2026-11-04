@@ -1,13 +1,26 @@
 # Source-code bug audit
 
 Audited on 2026-11-03 at commit `10c4fff1698d2d5046b3cc7c9bbaa1dfd678f82f`
-using Python 3.12.2 on macOS. No application code was changed.
+using Python 3.12.2 on macOS. Findings and source line references below describe
+that baseline; the **Status** notes record subsequent fixes.
 
 **Results: eight confirmed new bugs, two reproduced existing bugs, and one behavioral question (BUG-27).**
 New IDs continue after BUG-21 in [TICKETS.md](TICKETS.md). This review focused
 on editing, selection, Unicode, wrapping, serialization, saving, autosave,
 settings, and the shared screen/print rendering path. It is not an exhaustive
 audit of every platform or printer.
+
+## Fix completion (2026-11-03)
+
+All ten confirmed findings were fixed in separate commits, in severity order:
+BUG-22, BUG-23, BUG-24, BUG-25, BUG-26, BUG-28, BUG-29, BUG-30, BUG-5, BUG-6.
+BUG-27 was excluded as an unestablished behavioral expectation.
+
+Final validation: **590 passed, 10 deselected** in the normal suite. The ten
+excluded cases are exactly the clipboard/settings-access cases listed under
+"Existing test-suite results and limitations" below. The original opt-in
+reproductions report **16 passed, 2 skipped** (the skipped cases are BUG-27).
+The new regression tests and text-layout module pass Ruff checks.
 
 ## Reproducing the findings
 
@@ -18,8 +31,9 @@ The executable reproductions are in
 .venv/bin/python -m pytest tests/repro_source_audit.py -q --tb=short
 ```
 
-**Observed result: 18 failed in 2.63 seconds.** Each test asserts the intended
-behavior, so failure demonstrates the bug. Parameterized cases cover multiple
+**Original baseline result: 18 failed in 2.63 seconds.** Confirmed cases now
+pass; the two BUG-27 cases are skipped because their expectation was not
+established. The maintained regression suite is `tests/test_audit_fixes.py`. Parameterized cases cover multiple
 triggers for the same bug. For one finding, append `-k bug22`, replacing the ID
 as needed. The two existing findings use `-k existing_bug5` and
 `-k existing_bug6`.
@@ -311,19 +325,20 @@ conversion and handling combining sequences coherently.
 ## Existing findings reproduced
 
 These are already listed in [BUGS.md](BUGS.md), and are not counted among the
-nine new findings.
+eight confirmed new findings.
 
 - **BUG-5, Low — fixed:** Saved document content and styles now determine the
   modified flag, including undo/redo and edits back to the saved content.
   Stale swap files are removed on returning to the saved state. Original repro: Save `saved`, insert `x`, then undo. Serialized document
   content equals the saved file but `editor.modified` is still `True`.
   `_apply_snapshot` in [pagemark/editor.py](pagemark/editor.py), line 371,
-  unconditionally sets it. The extra save-on-quit prompt remains reproducible.
-- **BUG-6, Low:** `render_paragraph('a ' + 'b' * 63, 65)` returns two lines,
+  unconditionally set it at the audited baseline.
+- **BUG-6, Low — fixed:** Exactly fitting words now stay on the line, with
+  an empty cursor continuation at paragraph end. Original repro: `render_paragraph('a ' + 'b' * 63, 65)` returns two lines,
   `['a', 'b' * 63]`, although the complete text has exactly 65 characters.
   The strict `< width` check in [pagemark/view.py](pagemark/view.py), line 368,
-  remains in place. No fix is claimed here; a fix should also retain the
-  existing full-width cursor behavior.
+  caused this at the audited baseline. The fix retains the existing empty
+  continuation used to position the cursor after a full-width line.
 
 BUG-7 concerns dead SIGINT code rather than a newly reproduced user-visible
 failure and is not counted here.
