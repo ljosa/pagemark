@@ -4,7 +4,7 @@ import unicodedata
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from enum import IntFlag
-from typing import Optional, List
+from typing import Callable, Optional, List
 from .clipboard import ClipboardManager
 
 # Type alias for style masks
@@ -698,111 +698,47 @@ class TextModel:
         self.view.render()
     
     def downcase_word(self):
-        """Convert from cursor to end of word to lowercase (Emacs M-l).
-        
-        If in middle of word, convert from cursor to end of word.
-        If in whitespace, skip to next word and convert it.
-        """
-        para = self.paragraphs[self.cursor_position.paragraph_index]
-        start_pos = self.cursor_position.character_index
-        pos = start_pos
-        para_len = len(para)
-        
-        if pos >= para_len:
-            return
-        
-        # If we're in whitespace, skip to next word
-        if pos < para_len and para[pos].isspace():
-            while pos < para_len and para[pos].isspace():
-                pos += 1
-            start_pos = pos
-        
-        if pos >= para_len:
-            return
-        
-        # Find end of current word
-        while pos < para_len and not para[pos].isspace():
-            pos += 1
-        
-        # Convert to lowercase from start_pos to end of word
-        if pos > start_pos:
-            self.paragraphs[self.cursor_position.paragraph_index] = (
-                para[:start_pos] + para[start_pos:pos].lower() + para[pos:]
-            )
-            self.cursor_position.character_index = pos
-        
-        self.view.render()
-    
+        """Lowercase from the cursor to the end of the current/next word."""
+        self._change_word_case(str.lower)
+
     def upcase_word(self):
-        """Convert from cursor to end of word to uppercase (Emacs M-u).
-        
-        If in middle of word, convert from cursor to end of word.
-        If in whitespace, skip to next word and convert it.
-        """
-        para = self.paragraphs[self.cursor_position.paragraph_index]
-        start_pos = self.cursor_position.character_index
-        pos = start_pos
-        para_len = len(para)
-        
-        if pos >= para_len:
-            return
-        
-        # If we're in whitespace, skip to next word
-        if pos < para_len and para[pos].isspace():
-            while pos < para_len and para[pos].isspace():
-                pos += 1
-            start_pos = pos
-        
-        if pos >= para_len:
-            return
-        
-        # Find end of current word
-        while pos < para_len and not para[pos].isspace():
-            pos += 1
-        
-        # Convert to uppercase from start_pos to end of word
-        if pos > start_pos:
-            self.paragraphs[self.cursor_position.paragraph_index] = (
-                para[:start_pos] + para[start_pos:pos].upper() + para[pos:]
-            )
-            self.cursor_position.character_index = pos
-        
-        self.view.render()
-    
+        """Uppercase from the cursor to the end of the current/next word."""
+        self._change_word_case(str.upper)
+
     def capitalize_word(self):
-        """Capitalize the word at or after cursor position (Emacs M-c).
-        
-        Move forward to beginning of word if not at one, capitalize first letter,
-        lowercase rest, and move cursor to end of word.
-        """
-        para = self.paragraphs[self.cursor_position.paragraph_index]
-        pos = self.cursor_position.character_index
-        para_len = len(para)
-        
-        # Skip to start of word if not at one
-        while pos < para_len and para[pos].isspace():
-            pos += 1
-        
-        if pos >= para_len:
+        """Uppercase the first character and lowercase the rest of the word."""
+        self._change_word_case(str.lower, capitalize=True)
+
+    def _change_word_case(self, convert: Callable[[str], str], *, capitalize: bool = False) -> None:
+        para_idx = self.cursor_position.paragraph_index
+        paragraph = self.paragraphs[para_idx]
+        start = self.cursor_position.character_index
+        while start < len(paragraph) and paragraph[start].isspace():
+            start += 1
+        end = start
+        while end < len(paragraph) and not paragraph[end].isspace():
+            end += 1
+        if start == end:
             return
-        
-        # Find end of word
-        word_start = pos
-        while pos < para_len and not para[pos].isspace():
-            pos += 1
-        word_end = pos
-        
-        # Capitalize first letter, lowercase rest
-        word = para[word_start:word_end]
-        if word:
-            capitalized = word[0].upper() + word[1:].lower()
-            self.paragraphs[self.cursor_position.paragraph_index] = (
-                para[:word_start] + capitalized + para[word_end:]
-            )
-            self.cursor_position.character_index = word_end
-        
+
+        word = paragraph[start:end]
+        # Convert the complete string to preserve context-sensitive casing,
+        # such as Greek final sigma. Individual conversions determine only
+        # how many codepoints inherit each source character's style.
+        replacement = (word[0].upper() + word[1:].lower()
+                       if capitalize else convert(word))
+        self._sync_styles_length()
+        mask = self.styles[para_idx]
+        replacement_styles = []
+        for index, char in enumerate(word):
+            converted = char.upper() if capitalize and index == 0 else convert(char)
+            replacement_styles.extend([mask[start + index]] * len(converted))
+        self.paragraphs[para_idx] = paragraph[:start] + replacement + paragraph[end:]
+        self.styles[para_idx] = mask[:start] + replacement_styles + mask[end:]
+        self.cursor_position.character_index = start + len(replacement)
+        self._update_caret_style_from_position()
         self.view.render()
-    
+
     def kill_word(self):
         """Delete from cursor to end of current/next word (Emacs M-d)."""
         para = self.paragraphs[self.cursor_position.paragraph_index]

@@ -168,3 +168,44 @@ def test_bug24_new_file_has_private_permissions(editor, tmp_path):
     target = tmp_path / "new.txt"
     assert editor.save_file(str(target))
     assert stat.S_IMODE(target.stat().st_mode) == 0o600
+
+
+@pytest.mark.parametrize(
+    "key,text,expected",
+    [("u", "ß X", "SS X"), ("l", "İ X", "i̇ X"), ("c", "ß X", "SS X")],
+)
+def test_bug25_case_expansion_preserves_styles_and_cursor(editor, key, text, expected):
+    set_text(editor, text)
+    editor.model.styles = [[1, 0, 2]]
+    press(editor, KeyType.ALT, key)
+    assert editor.model.paragraphs == [expected]
+    assert (editor.model.styles, editor.model.cursor_position.character_index) == (
+        [[1, 1, 0, 2]],
+        2,
+    )
+
+
+@pytest.mark.parametrize(
+    "key,text,expected", [("l", "ΟΣ X", "ος X"), ("c", "aΣ X", "Aσ X")]
+)
+def test_bug25_case_conversion_keeps_context(editor, key, text, expected):
+    set_text(editor, text)
+    editor.model.styles = [[1, 2, 0, 3]]
+    press(editor, KeyType.ALT, key)
+    assert editor.model.paragraphs == [expected]
+    assert editor.model.styles == [[1, 2, 0, 3]]
+
+
+def test_bug25_expansion_with_prefix_suffix_and_undo(editor):
+    set_text(editor, "a ß X")
+    editor.model.styles = [[0, 0, 1, 0, 2]]
+    editor.model.cursor_position = CursorPosition(0, 1)
+    press(editor, KeyType.ALT, "u")
+    assert editor.model.paragraphs == ["a SS X"]
+    assert editor.model.styles == [[0, 0, 1, 1, 0, 2]]
+    assert editor.model.cursor_position == CursorPosition(0, 4)
+    press(editor, KeyType.CTRL, "z")
+    assert editor.model.paragraphs == ["a ß X"]
+    assert editor.model.styles == [[0, 0, 1, 0, 2]]
+    press(editor, KeyType.CTRL, "y")
+    assert editor.model.styles == [[0, 0, 1, 1, 0, 2]]

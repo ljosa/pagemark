@@ -138,6 +138,9 @@ files. Keep this distinct from the symlink destination bug.
 
 ## BUG-25: Unicode case conversion misaligns formatting and the cursor
 
+**Status:** Fixed; case conversion remaps style spans and cursor positions
+while retaining whole-word contextual casing.
+
 **Source:** [pagemark/model.py](pagemark/model.py), `downcase_word` (line 700),
 `upcase_word` (line 736), and `capitalize_word` (line 772).
 
