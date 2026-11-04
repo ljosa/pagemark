@@ -85,6 +85,7 @@ def test_undo_counts_as_an_edit_for_autosave(clean_session):
     editor._last_edit_time = now - 100
     editor._last_autosave_time = now - 50  # autosave is current...
 
+    editor.model.insert_text("unsaved text")
     snapshot = editor._snapshot_state()
     editor._apply_snapshot(snapshot)  # ...then the user presses Ctrl-Z
 

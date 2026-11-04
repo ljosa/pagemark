@@ -313,7 +313,9 @@ conversion and handling combining sequences coherently.
 These are already listed in [BUGS.md](BUGS.md), and are not counted among the
 nine new findings.
 
-- **BUG-5, Low:** Save `saved`, insert `x`, then undo. Serialized document
+- **BUG-5, Low — fixed:** Saved document content and styles now determine the
+  modified flag, including undo/redo and edits back to the saved content.
+  Stale swap files are removed on returning to the saved state. Original repro: Save `saved`, insert `x`, then undo. Serialized document
   content equals the saved file but `editor.modified` is still `True`.
   `_apply_snapshot` in [pagemark/editor.py](pagemark/editor.py), line 371,
   unconditionally sets it. The extra save-on-quit prompt remains reproducible.

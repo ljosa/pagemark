@@ -65,6 +65,7 @@ class Editor:
         self.help_visible = False  # Track if help screen is visible
         # Undo/redo
         self.undo = UndoManager()
+        self._saved_document: Optional[ModelSnapshot] = self._snapshot_state()
         # Incremental search state
         self._isearch_origin = None  # tuple[int,int] of original cursor
         self._isearch_last_match = None  # tuple[int,int] of last match start
@@ -351,6 +352,22 @@ class Editor:
             selection_end=end_tuple,
         )
 
+    def _update_modified(self) -> None:
+        """Compare document content with the last successful load/save.
+
+        Cursor, selection, and insertion style are deliberately excluded.
+        A recovered buffer has no clean baseline until explicitly saved.
+        """
+        saved = self._saved_document
+        self.modified = (saved is None
+                         or self.model.paragraphs != saved.paragraphs
+                         or self.model.styles != saved.styles)
+        if not self.modified:
+            if self.filename:
+                delete_swap_file(self.filename)
+            self._last_autosave_time = None
+            self._pending_edit_since = None
+
     def _apply_snapshot(self, snap: ModelSnapshot):
         # Restore model state and redraw
         self.model.paragraphs = list(snap.paragraphs)
@@ -370,8 +387,7 @@ class Editor:
         else:
             from .model import CursorPosition
             self.model.selection_end = CursorPosition(*snap.selection_end)
-        # Modified flag reflects that buffer differs from last saved content
-        self.modified = True
+        self._update_modified()
         # Undo/redo change the buffer without a key event, so record the edit
         # here; otherwise autosave considers the swap file current and never
         # writes the restored state.
@@ -499,7 +515,7 @@ class Editor:
         # Execute command
         was_modified = self.command_registry.execute(self, key_event)
         if was_modified:
-            self.modified = True
+            self._update_modified()
         return was_modified
 
     def _handle_prompt_mode(self, key_event: KeyEvent) -> bool:
@@ -710,6 +726,7 @@ class Editor:
             print(f"Error loading file: {e}")
             sys.exit(1)
 
+        self._saved_document = self._snapshot_state()
         self._apply_document_settings()
         self.view.render()
 
@@ -723,6 +740,7 @@ class Editor:
         self.filename = filename
         # Parse as overstrike to support styled documents; plain text is handled too
         self.model = TextModel.from_overstrike_text(self.view, content)
+        self._saved_document = None
         # Mark as modified since content came from swap, not the actual file
         self.modified = True
 
@@ -774,6 +792,7 @@ class Editor:
             os.replace(temp_filename, target_path)
 
             self.filename = filename
+            self._saved_document = self._snapshot_state()
             self.modified = False
             # Clean up swap file after successful save
             delete_swap_file(filename)

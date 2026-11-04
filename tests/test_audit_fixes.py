@@ -417,3 +417,68 @@ def test_bug30_terminal_clipping_keeps_combining_marks():
     )
     assert terminal._compose_display_line("e\u0301X", 1, None) == "e\u0301"
     assert terminal._compose_display_line("界X", 1, None) == " "
+
+
+def test_existing_bug5_undo_to_saved_content_clears_modified(editor, tmp_path):
+    path = tmp_path / "saved.txt"
+    set_text(editor, "saved")
+    assert editor.save_file(str(path))
+    press(editor, KeyType.REGULAR, "x")
+    press(editor, KeyType.CTRL, "z")
+    assert editor.model.to_overstrike_text() == path.read_text(encoding="utf-8")
+    assert editor.modified is False
+
+
+def test_bug5_style_undo_redo_and_save_baseline(editor, tmp_path):
+    path = str(tmp_path / "styled.txt")
+    set_text(editor, "saved")
+    assert editor.save_file(path)
+    select_all(editor)
+    press(editor, KeyType.CTRL, "b")
+    assert editor.modified
+    press(editor, KeyType.CTRL, "z")
+    assert not editor.modified
+    press(editor, KeyType.CTRL, "y")
+    assert editor.modified
+    assert editor.save_file(path)
+    press(editor, KeyType.CTRL, "z")
+    assert editor.modified
+    press(editor, KeyType.CTRL, "y")
+    assert not editor.modified
+
+
+def test_bug5_editing_back_to_saved_state_removes_stale_swap(editor, tmp_path):
+    from pagemark.autosave import get_swap_path, write_swap_file
+
+    path = str(tmp_path / "saved.txt")
+    assert editor.save_file(path)
+    press(editor, KeyType.REGULAR, "x")
+    assert write_swap_file(path, "x")
+    press(editor, KeyType.SPECIAL, "backspace")
+    assert not editor.modified
+    assert not Path(get_swap_path(path)).exists()
+    press(editor, KeyType.CTRL, "z")
+    assert editor.modified
+
+
+def test_bug5_recovery_is_dirty_until_saved(editor, tmp_path):
+    path = str(tmp_path / "recovered.txt")
+    editor.load_from_content(path, "recovered")
+    press(editor, KeyType.REGULAR, "x")
+    press(editor, KeyType.CTRL, "z")
+    assert editor.modified
+    assert editor.save_file(path)
+    press(editor, KeyType.CTRL, "y")
+    assert editor.modified
+    press(editor, KeyType.CTRL, "z")
+    assert not editor.modified
+
+
+def test_bug5_failed_save_does_not_move_clean_baseline(editor, tmp_path):
+    set_text(editor, "saved")
+    assert editor.save_file(str(tmp_path / "saved.txt"))
+    press(editor, KeyType.REGULAR, "x")
+    assert not editor.save_file(str(tmp_path / "missing" / "file.txt"))
+    assert editor.modified
+    press(editor, KeyType.CTRL, "z")
+    assert not editor.modified

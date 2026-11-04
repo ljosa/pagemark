@@ -6,6 +6,9 @@ tokenizer rewrite of `rtf_parser.py`; see TICKETS.md BUG-14.
 
 ## BUG-5: Undo always marks document as modified
 
+**Status:** Fixed (2026-11-03). The editor tracks the last saved document
+content and styles and compares them after edits and undo/redo.
+
 **Severity:** Low
 **Files:** `pagemark/editor.py:334`
 
