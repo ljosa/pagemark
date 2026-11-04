@@ -1,6 +1,7 @@
 """Regression tests for bugs documented in BUG_AUDIT.md."""
 
 import os
+import stat
 from pathlib import Path
 import subprocess
 import sys
@@ -138,3 +139,32 @@ def test_bug23_failed_save_preserves_symlink(editor, tmp_path, monkeypatch):
     assert link.is_symlink()
     assert target.read_text(encoding="utf-8") == "old"
     assert sorted(p.name for p in tmp_path.iterdir()) == ["alias.txt", "target.txt"]
+
+
+def test_bug24_save_preserves_existing_permissions(editor, tmp_path):
+    path = tmp_path / "shared.txt"
+    path.write_text("old", encoding="utf-8")
+    path.chmod(0o640)
+    editor.load_file(str(path))
+    press(editor, KeyType.REGULAR, "new ")
+    assert editor.save_file(str(path))
+    assert stat.S_IMODE(path.stat().st_mode) == 0o640
+
+
+@pytest.mark.parametrize("mode", [0o600, 0o644, 0o755])
+def test_bug24_save_preserves_symlink_target_mode(editor, tmp_path, mode):
+    target = tmp_path / "target.txt"
+    target.write_text("old", encoding="utf-8")
+    target.chmod(mode)
+    link = tmp_path / "alias.txt"
+    link.symlink_to(target)
+    set_text(editor, "new")
+    assert editor.save_file(str(link))
+    assert stat.S_IMODE(target.stat().st_mode) == mode
+    assert link.is_symlink()
+
+
+def test_bug24_new_file_has_private_permissions(editor, tmp_path):
+    target = tmp_path / "new.txt"
+    assert editor.save_file(str(target))
+    assert stat.S_IMODE(target.stat().st_mode) == 0o600

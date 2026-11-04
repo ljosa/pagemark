@@ -118,10 +118,8 @@ def test_atomic_save_preserves_permissions():
         
         # Check permissions are preserved (mode should be similar)
         new_stat = os.stat(temp_filename)
-        # Note: os.replace preserves the target file's permissions on POSIX
-        # but the new file will have default permissions, not the original
-        # This is actually correct behavior - we want default permissions for new files
-        
+        assert new_stat.st_mode & 0o7777 == original_stat.st_mode & 0o7777
+
         # Verify content was updated
         with open(temp_filename, 'r', encoding='utf-8') as f:
             assert f.read() == "New content"

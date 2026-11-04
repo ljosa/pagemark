@@ -7,6 +7,7 @@ from pathlib import Path
 import sys
 import select
 import signal
+import stat
 import termios
 import tempfile
 import errno
@@ -748,6 +749,10 @@ class Editor:
             # retaining the user's chosen filename for prompts and autosave.
             target_path = Path(filename).resolve()
             dir_name = str(target_path.parent)
+            try:
+                existing_mode = stat.S_IMODE(target_path.stat().st_mode)
+            except FileNotFoundError:
+                existing_mode = None
 
             # Create temp file with same suffix as target
             suffix = os.path.splitext(filename)[1]
@@ -757,6 +762,8 @@ class Editor:
                 temp_filename = temp_file.name
                 temp_file.write(content)
                 temp_file.flush()
+                if existing_mode is not None:
+                    os.fchmod(temp_file.fileno(), existing_mode)
                 os.fsync(temp_file.fileno())  # Ensure data is written to disk
 
             # Atomic rename - this is atomic on POSIX systems

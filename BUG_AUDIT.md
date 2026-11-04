@@ -109,6 +109,9 @@ save against the resolved destination when editing through a link.
 
 ## BUG-24: Atomic save resets existing file permissions
 
+**Status:** Fixed; the existing destination mode is applied to the temporary
+file before replacement. New files retain restrictive permissions.
+
 **Source:** [pagemark/editor.py](pagemark/editor.py), `save_file` (lines 750–760).
 
 **Reproduce:** Create an existing document with mode `0640`, open it, edit it,
