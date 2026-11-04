@@ -1,7 +1,7 @@
 """Terminal presentation adapter for the pure layout and viewport modules."""
 from .coordinates import ContentLineIndex, DocumentPosition
 from .constants import EditorConstants
-from .model import TextView, CursorPosition
+from .model import TextView
 from .layout import DocumentLayout
 # Preserve the public imports used by existing clients.
 from .layout import (  # noqa: F401
@@ -23,12 +23,22 @@ class TerminalTextView(TextView):
         self.first_paragraph_line_offset = 0
         self.visual_cursor_y = 0
         self.visual_cursor_x = 0
-        self.desired_x = 0
+        self._desired_x = 0
         self._double_spacing = False
         self.lines: list[str] = []
         self.line_styles: list[list[int]] = []
         self._frame_rows: tuple[TextRow | PageBreakRow, ...] = ()
         self._layout_key = None
+
+    @property
+    def desired_x(self) -> int:
+        return self.model.desired_column if self._model is not None else self._desired_x
+
+    @desired_x.setter
+    def desired_x(self, value: int) -> None:
+        self._desired_x = value
+        if self._model is not None:
+            self.model.desired_column = value
 
     def set_double_spacing(self, enabled: bool) -> None:
         self._double_spacing = bool(enabled)
@@ -116,7 +126,7 @@ class TerminalTextView(TextView):
 
     def _move_to_line(self, layout: DocumentLayout, line: int, column: int) -> None:
         position = layout.position_at(line, column)
-        self.model.cursor_position = CursorPosition(position.paragraph_index, position.character_index)
+        self.model.relocate_cursor(position, preserve_column=True, render=False)
 
     def _move_vertical(self, direction: int) -> None:
         layout = self._document_layout()
@@ -139,7 +149,7 @@ class TerminalTextView(TextView):
                 self.render()
 
     def update_desired_x(self) -> None:
-        self.desired_x = self._document_layout().column_for_position(self._position())
+        self.model.desired_column = self.model.cursor_column()
 
     def _scroll_page(self, direction: int) -> None:
         layout = self._document_layout()

@@ -30,14 +30,23 @@ class EditorCommand(ABC):
 class MovementCommand(EditorCommand):
     """Base class for cursor movement commands."""
     
+    preserve_column = False
+    extend_selection = False
+
     def execute(self, editor: 'Editor', key_event: 'KeyEvent') -> bool:
-        """Movement commands don't modify the document."""
-        # Clear selection on non-shift movement
-        editor.model.clear_selection()
+        if self.extend_selection:
+            if editor.model.selection_start is None:
+                editor.model.start_selection()
+        else:
+            editor.model.clear_selection()
         self._move(editor, key_event)
-        editor.view.update_desired_x()
+        if self.extend_selection:
+            editor.model.update_selection_end()
+        if not self.preserve_column:
+            editor.view.update_desired_x()
+        editor.view.render()
         return False
-    
+
     @abstractmethod
     def _move(self, editor: 'Editor', key_event: 'KeyEvent'):
         """Perform the movement."""
@@ -55,20 +64,15 @@ class RightCharCommand(MovementCommand):
 
 
 class UpLineCommand(MovementCommand):
-    def execute(self, editor: 'Editor', key_event: 'KeyEvent') -> bool:
-        # Preserve desired column on vertical move (no update_desired_x)
-        editor.model.clear_selection()
-        editor.view.move_cursor_up()
-        return False
+    preserve_column = True
+
     def _move(self, editor, key_event):
         editor.view.move_cursor_up()
 
 
 class DownLineCommand(MovementCommand):
-    def execute(self, editor: 'Editor', key_event: 'KeyEvent') -> bool:
-        editor.model.clear_selection()
-        editor.view.move_cursor_down()
-        return False
+    preserve_column = True
+
     def _move(self, editor, key_event):
         editor.view.move_cursor_down()
 
@@ -293,26 +297,12 @@ class SelectionMovementCommand(MovementCommand):
     the original anchor and extend/shrink the selection as the cursor moves.
     """
 
-    def execute(self, editor: 'Editor', key_event: 'KeyEvent') -> bool:
-        # Start selection if not already started
-        if editor.model.selection_start is None:
-            editor.model.start_selection()
-
-        # Perform the movement without clearing selection
-        self._selection_move(editor, key_event)
-
-        # Update selection end to current cursor and draw
-        editor.model.update_selection_end()
-        editor.view.update_desired_x()
-        editor.view.render()
-        return False
+    extend_selection = True
 
     def _selection_move(self, editor, key_event):
         """Override this to implement specific movement."""
         pass
 
-    # Implement abstract method to satisfy MovementCommand, though
-    # SelectionMovementCommand overrides execute and doesn't use this path.
     def _move(self, editor, key_event):
         self._selection_move(editor, key_event)
 
@@ -328,11 +318,15 @@ class ShiftRightCommand(SelectionMovementCommand):
 
 
 class ShiftUpCommand(SelectionMovementCommand):
+    preserve_column = True
+
     def _selection_move(self, editor, key_event):
         editor.view.move_cursor_up()
 
 
 class ShiftDownCommand(SelectionMovementCommand):
+    preserve_column = True
+
     def _selection_move(self, editor, key_event):
         editor.view.move_cursor_down()
 
@@ -484,18 +478,14 @@ class CommandRegistry:
         return False
 
 class PageDownCommand(MovementCommand):
-    def execute(self, editor: 'Editor', key_event: 'KeyEvent') -> bool:
-        editor.model.clear_selection()
-        editor.view.scroll_page_down()
-        return False
+    preserve_column = True
+
     def _move(self, editor, key_event):
         editor.view.scroll_page_down()
 
 class PageUpCommand(MovementCommand):
-    def execute(self, editor: 'Editor', key_event: 'KeyEvent') -> bool:
-        editor.model.clear_selection()
-        editor.view.scroll_page_up()
-        return False
+    preserve_column = True
+
     def _move(self, editor, key_event):
         editor.view.scroll_page_up()
 class ToggleStyleCommand(EditCommand):

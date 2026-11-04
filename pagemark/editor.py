@@ -387,6 +387,11 @@ class Editor:
         else:
             from .model import CursorPosition
             self.model.selection_end = CursorPosition(*snap.selection_end)
+        from .coordinates import DocumentPosition
+        self.model.relocate_cursor(
+            DocumentPosition(snap.cursor_paragraph_index, snap.cursor_character_index),
+            caret_style=snap.caret_style, render=False,
+        )
         self._update_modified()
         # Undo/redo change the buffer without a key event, so record the edit
         # here; otherwise autosave considers the swap file current and never
@@ -564,11 +569,7 @@ class Editor:
            (key_event.key_type == KeyType.CTRL and key_event.value == 'g'):
             # Restore original cursor position
             if self._isearch_origin is not None:
-                pi, ci = self._isearch_origin
-                self.model.cursor_position.paragraph_index = pi
-                self.model.cursor_position.character_index = ci
-                self.model._update_caret_style_from_position()
-                self.view.render()
+                self._move_cursor_to(self._isearch_origin)
             self.prompt_mode = None
             self.prompt_input = ""
             self._isearch_origin = None
@@ -615,11 +616,7 @@ class Editor:
         if not self.prompt_input:
             # No query: reset to origin
             if self._isearch_origin is not None:
-                pi, ci = self._isearch_origin
-                self.model.cursor_position.paragraph_index = pi
-                self.model.cursor_position.character_index = ci
-                self.model._update_caret_style_from_position()
-                self.view.render()
+                self._move_cursor_to(self._isearch_origin)
                 self._isearch_last_match = None
             return
         # Find first match at/after origin
@@ -654,11 +651,8 @@ class Editor:
             self._isearch_last_match = match
 
     def _move_cursor_to(self, pos: tuple[int, int]) -> None:
-        pi, ci = pos
-        self.model.cursor_position.paragraph_index = pi
-        self.model.cursor_position.character_index = ci
-        self.model._update_caret_style_from_position()
-        self.view.render()
+        from .coordinates import DocumentPosition
+        self.model.relocate_cursor(DocumentPosition(*pos))
 
     def _find_forward(self, query: str, start: tuple[int, int]) -> Optional[tuple[int, int]]:
         """Find query at/after start. Case-insensitive search.

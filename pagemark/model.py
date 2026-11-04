@@ -7,6 +7,9 @@ from enum import IntFlag
 from typing import Callable, Optional, List
 from .clipboard import ClipboardManager
 from .text_layout import display_width
+from .coordinates import CellColumn, DocumentPosition
+from .layout import layout_paragraph
+from .navigation import NavigationState, inherited_style
 
 # Type alias for style masks
 StyleMask = List[int]
@@ -89,6 +92,7 @@ class TextModel:
         self.styles = [[0]*len(p) for p in self.paragraphs]
         # Caret style used when inserting text; updated on cursor moves
         self.caret_style = 0
+        self.desired_column = 0
 
     def _sync_styles_length(self):
         """Ensure styles list mirrors paragraphs lengths (internal safety).
@@ -113,20 +117,46 @@ class TextModel:
             # Full rebuild required - paragraph count changed
             self.styles = [[0]*len(p) for p in self.paragraphs]
 
+    @property
+    def navigation_state(self) -> NavigationState:
+        cursor = self.cursor_position
+        anchor = self.selection_start
+        return NavigationState(
+            DocumentPosition(cursor.paragraph_index, cursor.character_index),
+            DocumentPosition(anchor.paragraph_index, anchor.character_index) if anchor else None,
+            CellColumn(self.desired_column), self.caret_style,
+        )
+
+    def cursor_column(self, position: DocumentPosition | None = None) -> int:
+        position = position or self.navigation_state.cursor
+        width = getattr(self.view, "num_columns", 65)
+        # TextModel also supports non-terminal views without layout dimensions.
+        if not isinstance(width, int):
+            width = 65
+        return layout_paragraph(self.paragraphs[position.paragraph_index], width).visual_column(position.character_index)
+
+    def relocate_cursor(self, position: DocumentPosition, *, preserve_column: bool = False,
+                        caret_style: int | None = None, render: bool = True) -> None:
+        state = self.navigation_state.relocate(
+            position, self.cursor_column(position), self.styles,
+            preserve_column=preserve_column,
+            extend_selection=self.selection_start is not None,
+            caret_style=caret_style,
+        )
+        self.cursor_position = CursorPosition(state.cursor.paragraph_index, state.cursor.character_index)
+        self.desired_column = state.desired_column
+        self.caret_style = state.caret_style
+        self.selection_start = (CursorPosition(state.anchor.paragraph_index, state.anchor.character_index)
+                                if state.anchor else None)
+        self.update_selection_end()
+        if render:
+            self.view.render()
+
+    def _finish_cursor_move(self) -> None:
+        self.relocate_cursor(self.navigation_state.cursor)
+
     def _update_caret_style_from_position(self):
-        """Update caret_style based on style at cursor position (inherit from left)."""
-        pi = self.cursor_position.paragraph_index
-        ci = self.cursor_position.character_index
-        if 0 <= pi < len(self.styles):
-            line_styles = self.styles[pi]
-            if ci > 0 and ci-1 < len(line_styles):
-                self.caret_style = line_styles[ci-1]
-            elif ci < len(line_styles):
-                self.caret_style = line_styles[ci]
-            else:
-                self.caret_style = 0
-        else:
-            self.caret_style = 0
+        self.caret_style = inherited_style(self.navigation_state.cursor, self.styles)
 
     # --- Serialization with overstrike for bold/underline ---
     def to_overstrike_text(self) -> str:
@@ -299,8 +329,7 @@ class TextModel:
         elif self.cursor_position.paragraph_index + 1 < len(self.paragraphs):
             self.cursor_position.paragraph_index += 1
             self.cursor_position.character_index = 0
-        self._update_caret_style_from_position()
-        self.view.render()
+        self._finish_cursor_move()
 
     def left_char(self):
         if self.cursor_position.character_index > 0:
@@ -308,15 +337,13 @@ class TextModel:
         elif self.cursor_position.paragraph_index > 0:
             self.cursor_position.paragraph_index -= 1
             self.cursor_position.character_index = len(self.paragraphs[self.cursor_position.paragraph_index])
-        self._update_caret_style_from_position()
-        self.view.render()
+        self._finish_cursor_move()
 
     def move_beginning_of_document(self) -> None:
         """Move cursor to the beginning of the document (Home)."""
         self.cursor_position.paragraph_index = 0
         self.cursor_position.character_index = 0
-        self._update_caret_style_from_position()
-        self.view.render()
+        self._finish_cursor_move()
 
     def move_end_of_document(self) -> None:
         """Move cursor to the end of the document (End)."""
@@ -327,8 +354,7 @@ class TextModel:
         else:
             self.cursor_position.paragraph_index = 0
             self.cursor_position.character_index = 0
-        self._update_caret_style_from_position()
-        self.view.render()
+        self._finish_cursor_move()
 
     def backward_paragraph(self) -> None:
         """Move to beginning of previous non-empty paragraph (M-up).
@@ -366,8 +392,7 @@ class TextModel:
                 self.cursor_position.character_index = 0
             # else: nothing before; no movement
 
-        self._update_caret_style_from_position()
-        self.view.render()
+        self._finish_cursor_move()
 
     def forward_paragraph(self) -> None:
         """Move to beginning of paragraph after the next non-empty (M-down).
@@ -393,8 +418,7 @@ class TextModel:
                 self.cursor_position.character_index = 0
             # else: no subsequent non-empty paragraph; no movement
 
-        self._update_caret_style_from_position()
-        self.view.render()
+        self._finish_cursor_move()
     
     def count_words(self) -> int:
         """Count the total number of words in the document.
@@ -669,8 +693,7 @@ class TextModel:
                 # at the first letter of the last word)
                 self.cursor_position.character_index = para_len
         
-        self._update_caret_style_from_position()
-        self.view.render()
+        self._finish_cursor_move()
     
     def left_word(self):
         """Move cursor backward by one word (Emacs-style)."""
@@ -695,8 +718,7 @@ class TextModel:
             self.cursor_position.paragraph_index -= 1
             self.cursor_position.character_index = len(self.paragraphs[self.cursor_position.paragraph_index])
         
-        self._update_caret_style_from_position()
-        self.view.render()
+        self._finish_cursor_move()
     
     def downcase_word(self):
         """Lowercase from the cursor to the end of the current/next word."""
@@ -837,8 +859,7 @@ class TextModel:
         # Calculate the start position of this visual line
         self.cursor_position.character_index = mapper.line_start(line_index)
 
-        self._update_caret_style_from_position()
-        self.view.render()
+        self._finish_cursor_move()
 
     def move_end_of_line(self):
         """Move cursor to end of visual line (Emacs-style Ctrl-E)."""
@@ -856,8 +877,7 @@ class TextModel:
             # line_end is the first char of the NEXT line, so subtract 1
             self.cursor_position.character_index = mapper.line_end(line_index) - 1
 
-        self._update_caret_style_from_position()
-        self.view.render()
+        self._finish_cursor_move()
     
     def start_selection(self):
         """Start a new selection at current cursor position."""
