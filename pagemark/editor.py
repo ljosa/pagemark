@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from bisect import bisect_right
 from pathlib import Path
 import sys
 import select
@@ -651,16 +652,18 @@ class Editor:
         q = query.lower()
         paras = self.model.paragraphs
         start_pi, start_ci = start
-        # Current paragraph from start_ci
-        if 0 <= start_pi < len(paras):
-            idx = paras[start_pi].lower().find(q, max(0, start_ci))
+        for pi in range(max(0, start_pi), len(paras)):
+            paragraph = paras[pi]
+            # Search in lowercase text, but keep both the starting offset and
+            # returned match in original document coordinates. Lowercasing can
+            # expand a codepoint (for example İ -> i + combining dot).
+            boundaries = [0]
+            for char in paragraph:
+                boundaries.append(boundaries[-1] + len(char.lower()))
+            ci = min(max(0, start_ci), len(paragraph)) if pi == start_pi else 0
+            idx = paragraph.lower().find(q, boundaries[ci])
             if idx != -1:
-                return (start_pi, idx)
-        # Subsequent paragraphs
-        for pi in range(start_pi + 1, len(paras)):
-            idx = paras[pi].lower().find(q)
-            if idx != -1:
-                return (pi, idx)
+                return (pi, bisect_right(boundaries, idx) - 1)
         return None
 
     def _handle_backspace(self):

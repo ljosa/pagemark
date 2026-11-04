@@ -209,3 +209,30 @@ def test_bug25_expansion_with_prefix_suffix_and_undo(editor):
     assert editor.model.styles == [[0, 0, 1, 0, 2]]
     press(editor, KeyType.CTRL, "y")
     assert editor.model.styles == [[0, 0, 1, 1, 0, 2]]
+
+
+def test_bug26_unicode_search_returns_original_character_index(editor):
+    set_text(editor, "İx")
+    press(editor, KeyType.CTRL, "f")
+    press(editor, KeyType.REGULAR, "x")
+    assert editor.model.cursor_position == CursorPosition(0, 1)
+
+
+def test_bug26_repeated_search_advances_in_original_coordinates(editor):
+    set_text(editor, "İx İx")
+    press(editor, KeyType.CTRL, "f")
+    press(editor, KeyType.REGULAR, "x")
+    assert editor.model.cursor_position == CursorPosition(0, 1)
+    press(editor, KeyType.CTRL, "f")
+    assert editor.model.cursor_position == CursorPosition(0, 4)
+    press(editor, KeyType.CTRL, "f")
+    assert editor.model.cursor_position == CursorPosition(0, 4)
+    press(editor, KeyType.CTRL, "g")
+    assert editor.model.cursor_position == CursorPosition(0, 0)
+
+
+def test_bug26_search_skips_expansion_before_start_and_finds_next_paragraph(editor):
+    set_text(editor, "İx")
+    assert editor._find_forward("x", (0, 2)) is None
+    editor.model.insert_text("\nİİx")
+    assert editor._find_forward("x", (1, 0)) == (1, 2)

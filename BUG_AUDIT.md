@@ -165,6 +165,9 @@ commands with expanding conversions.
 
 ## BUG-26: Unicode search positions the cursor after the match
 
+**Status:** Fixed; search maps both the starting offset and match back to
+original document coordinates.
+
 **Source:** [pagemark/editor.py](pagemark/editor.py), `_find_forward`
 (lines 644–661).
 
