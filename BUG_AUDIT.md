@@ -248,6 +248,9 @@ reverse selections, including ranges across paragraphs.
 
 ## BUG-29: First Save never associates the session settings with the new path
 
+**Status:** Fixed; successful saves associate and persist current preferences
+without loading defaults over the user’s choices.
+
 **Source:** [pagemark/editor.py](pagemark/editor.py), `save_file` (line 762),
 and [pagemark/session.py](pagemark/session.py), `set` (line 48) and
 `_save_to_disk` (line 104).

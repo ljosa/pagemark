@@ -779,6 +779,7 @@ class Editor:
             delete_swap_file(filename)
             self._last_autosave_time = None
             self._pending_edit_since = None
+            self.session.save_document_settings(filename)
             return True
 
         except PermissionError:

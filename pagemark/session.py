@@ -101,6 +101,15 @@ class SessionManager:
             else:
                 logger.warning(f"Ignoring invalid setting {key}={value} for document {document_path}")
     
+    def save_document_settings(self, document_path: str) -> None:
+        """Associate a saved document with the current preferences and persist them.
+
+        Unlike loading a document, saving must keep the preferences already
+        chosen in this session, including those set before the first save.
+        """
+        self._document_path = document_path
+        self._save_to_disk()
+
     def _save_to_disk(self) -> None:
         """Save current settings to disk for the current document."""
         if not self._document_path or not self._persistence_enabled:

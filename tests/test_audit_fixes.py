@@ -13,7 +13,7 @@ from pagemark.keyboard import KeyType
 from pagemark.editor import Editor
 from pagemark.keyboard import KeyEvent
 from pagemark.model import CursorPosition, TextModel
-from pagemark.session import SessionManager
+from pagemark.session import SessionKeys, SessionManager
 from pagemark.settings_persistence import SettingsPersistence
 
 
@@ -299,3 +299,49 @@ def test_bug28_empty_selection_uses_normal_edit(editor, key_type, key, expected)
     press(editor, key_type, key)
     assert editor.model.paragraphs == expected
     assert editor.model.selection_start is None
+
+
+def test_bug29_first_save_associates_settings_with_document(editor, tmp_path):
+    path = tmp_path / "new.txt"
+    press(editor, KeyType.REGULAR, "text")
+    press(editor, KeyType.CTRL, "s")
+    assert editor.prompt_mode == "save_filename"
+    # Filename input normally arrives one character at a time.
+    for char in str(path):
+        press(editor, KeyType.REGULAR, char)
+    press(editor, KeyType.SPECIAL, "enter")
+    assert path.read_text(encoding="utf-8") == "text"
+    editor.session.set(SessionKeys.DOUBLE_SPACING, True)
+    editor.session.clear()
+    editor.load_file(str(path))
+    assert editor.spacing_double is True
+
+
+def test_bug29_first_save_persists_existing_preferences(editor, tmp_path):
+    from pagemark.settings_persistence import get_persistence
+
+    path = str(tmp_path / "new.txt")
+    editor.session.set(SessionKeys.DOUBLE_SPACING, True)
+    assert editor.save_file(path)
+    assert get_persistence().load_settings(path)[SessionKeys.DOUBLE_SPACING] is True
+
+
+def test_bug29_save_as_moves_settings_association(editor, tmp_path):
+    from pagemark.settings_persistence import get_persistence
+
+    old = str(tmp_path / "old.txt")
+    new = str(tmp_path / "new.txt")
+    editor.session.set(SessionKeys.DOUBLE_SPACING, True)
+    assert editor.save_file(old)
+    assert editor.save_file(new)
+    editor.session.set(SessionKeys.DOUBLE_SPACING, False)
+    persistence = get_persistence()
+    assert persistence.load_settings(old)[SessionKeys.DOUBLE_SPACING] is True
+    assert persistence.load_settings(new)[SessionKeys.DOUBLE_SPACING] is False
+
+
+def test_bug29_failed_save_keeps_settings_association(editor, tmp_path):
+    old = str(tmp_path / "old.txt")
+    assert editor.save_file(old)
+    assert not editor.save_file(str(tmp_path / "missing" / "new.txt"))
+    assert editor.session._document_path == old
