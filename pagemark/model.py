@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from enum import IntFlag
 from typing import Callable, Optional, List
 from .clipboard import ClipboardManager
+from .text_layout import display_width
 
 # Type alias for style masks
 StyleMask = List[int]
@@ -553,11 +554,11 @@ class TextModel:
             return True
 
         # Check if paragraph would wrap (multi-line) or is at max width
-        if len(stripped) >= width:
+        if display_width(stripped) >= width:
             return False
 
         # Calculate centering
-        spaces_needed = (width - len(stripped)) // 2
+        spaces_needed = (width - display_width(stripped)) // 2
         centered = ' ' * spaces_needed + stripped
 
         # Update the paragraph, moving the style mask with its characters

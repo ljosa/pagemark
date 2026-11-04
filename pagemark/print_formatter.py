@@ -6,9 +6,7 @@ output. It supports both 10-pitch (pica) and 12-pitch (elite) font configuration
 """
 
 from typing import List, Tuple, Optional
-from .view import render_paragraph
-from .view import get_hanging_indent_width
-from .view import expand_styles_for_display
+from .layout import layout_paragraph
 from .font_config import FontConfig, get_font_config
 
 
@@ -94,50 +92,23 @@ class PrintFormatter:
         text_lines: List[str] = []
         flat_runs: List[Optional[List[Tuple[int, str, int]]]] = []
         for idx, paragraph in enumerate(self.paragraphs):
-            # Use the same render_paragraph function as view.py for consistency
-            lines, counts = render_paragraph(paragraph, self.TEXT_WIDTH)
-            text_lines.extend(lines)
-            if self.styles is not None:
-                st = self.styles[idx] if idx < len(self.styles) else [0] * len(paragraph)
+            layout = layout_paragraph(paragraph, self.TEXT_WIDTH)
+            st = self.styles[idx] if self.styles is not None and idx < len(self.styles) else []
+            for row in layout.rows:
+                text_lines.append(row.text)
+                flags = row.styles(st)
+                runs = []
                 start = 0
-                for li, line in enumerate(lines):
-                    end = counts[li]
-                    # Expand to display columns: em-dashes render as "--"
-                    # (two columns for one content character/style entry)
-                    slice_styles = expand_styles_for_display(
-                        paragraph[start:end], st[start:end])
-                    # Build contiguous runs for this 65-char line
-                    runs: List[Tuple[int, str, int]] = []
-                    if line:
-                        # Determine visual indent for wrapped bullet/numbered paragraphs
-                        visual_indent = 0
-                        if li > 0:
-                            hiw = get_hanging_indent_width(paragraph, self.TEXT_WIDTH)
-                            if hiw > 0:
-                                visual_indent = hiw
-                        x = max(visual_indent, 0)
-                        while x < len(line):
-                            # Map visual x to content index (excluding visual indent)
-                            content_idx = x - visual_indent if x >= visual_indent else 0
-                            flags = slice_styles[content_idx] if content_idx < len(slice_styles) else 0
-                            j = x
-                            while j < len(line):
-                                ci = j - visual_indent if j >= visual_indent else 0
-                                f2 = slice_styles[ci] if ci < len(slice_styles) else 0
-                                if f2 != flags:
-                                    break
-                                j += 1
-                            if flags != 0:
-                                seg_text = line[x:j]
-                                # Convert to absolute x with left margin
-                                runs.append((self.LEFT_MARGIN + x, seg_text, flags))
-                            x = j
-                    flat_runs.append(runs if runs else [])
+                while start < len(row.text):
+                    end = start + 1
+                    while end < len(row.text) and flags[end] == flags[start]:
+                        end += 1
+                    if flags[start]:
+                        # PDF uses rendered character offsets for its fixed-pitch font.
+                        runs.append((self.LEFT_MARGIN + start, row.text[start:end], flags[start]))
                     start = end
-            else:
-                for _ in lines:
-                    flat_runs.append([])
-        
+                flat_runs.append(runs)
+
         # Now create full pages with margins
         self.pages = []
         self.page_runs = []
