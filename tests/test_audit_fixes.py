@@ -236,3 +236,66 @@ def test_bug26_search_skips_expansion_before_start_and_finds_next_paragraph(edit
     assert editor._find_forward("x", (0, 2)) is None
     editor.model.insert_text("\nİİx")
     assert editor._find_forward("x", (1, 0)) == (1, 2)
+
+
+@pytest.mark.parametrize(
+    "key_type,key,expected",
+    [
+        (KeyType.SPECIAL, "enter", ["", ""]),
+        (KeyType.SPECIAL, "backspace", [""]),
+        (KeyType.CTRL, "d", [""]),
+    ],
+)
+def test_bug28_editing_replaces_selected_range(editor, key_type, key, expected):
+    set_text(editor, "abc")
+    select_all(editor)
+    press(editor, key_type, key)
+    assert editor.model.paragraphs == expected
+    assert editor.model.selection_start is None
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+@pytest.mark.parametrize(
+    "key_type,key,expected",
+    [
+        (KeyType.SPECIAL, "enter", ["a", "f"]),
+        (KeyType.SPECIAL, "backspace", ["af"]),
+        (KeyType.CTRL, "d", ["af"]),
+    ],
+)
+def test_bug28_multiline_selection_and_undo(editor, reverse, key_type, key, expected):
+    editor.model = TextModel(editor.view, ["abc", "def"])
+    editor.model.styles = [[1, 1, 1], [2, 2, 2]]
+    start, end = CursorPosition(0, 1), CursorPosition(1, 2)
+    editor.model.selection_start, editor.model.selection_end = (
+        (end, start) if reverse else (start, end)
+    )
+    cp = editor.model.selection_end
+    editor.model.cursor_position = CursorPosition(
+        cp.paragraph_index, cp.character_index
+    )
+    editor.view.render()
+    press(editor, key_type, key)
+    assert editor.model.paragraphs == expected
+    assert editor.model.styles == ([[1], [2]] if key == "enter" else [[1, 2]])
+    assert editor.model.selection_start is None
+    press(editor, KeyType.CTRL, "z")
+    assert editor.model.paragraphs == ["abc", "def"]
+    assert editor.model.styles == [[1, 1, 1], [2, 2, 2]]
+
+
+@pytest.mark.parametrize(
+    "key_type,key,expected",
+    [
+        (KeyType.SPECIAL, "enter", ["a", "bc"]),
+        (KeyType.SPECIAL, "backspace", ["bc"]),
+        (KeyType.CTRL, "d", ["ac"]),
+    ],
+)
+def test_bug28_empty_selection_uses_normal_edit(editor, key_type, key, expected):
+    set_text(editor, "abc")
+    editor.model.cursor_position = CursorPosition(0, 1)
+    editor.model.start_selection()
+    press(editor, key_type, key)
+    assert editor.model.paragraphs == expected
+    assert editor.model.selection_start is None

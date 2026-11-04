@@ -144,12 +144,14 @@ class EditCommand(EditorCommand):
 
 class BackspaceCommand(EditCommand):
     def _edit(self, editor, key_event):
-        editor._handle_backspace()
+        if not editor.model.delete_selection():
+            editor._handle_backspace()
 
 
 class DeleteCharCommand(EditCommand):
     def _edit(self, editor, key_event):
-        editor.model.delete_char()
+        if not editor.model.delete_selection():
+            editor.model.delete_char()
 
 
 class KillLineCommand(EditCommand):
@@ -169,6 +171,7 @@ class ForwardKillWordCommand(EditCommand):
 
 class InsertNewlineCommand(EditCommand):
     def _edit(self, editor, key_event):
+        editor.model.delete_selection()
         editor.model.insert_text('\n')
 
 

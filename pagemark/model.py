@@ -946,10 +946,11 @@ class TextModel:
                 result.append(style_mask[:])
         return result
     
-    def delete_selection(self):
-        """Delete the currently selected text."""
+    def delete_selection(self) -> bool:
+        """Delete the selected range, returning whether it was nonempty."""
         if self.selection_start is None or self.selection_end is None:
-            return
+            self.clear_selection()
+            return False
         
         # Ensure start comes before end
         start = self.selection_start
@@ -959,6 +960,10 @@ class TextModel:
              start.character_index > end.character_index)):
             start, end = end, start
         
+        if start == end:
+            self.clear_selection()
+            return False
+
         # Ensure styles mirror structure
         self._sync_styles_length()
 
@@ -993,6 +998,7 @@ class TextModel:
         
         self.clear_selection()
         self.view.render()
+        return True
     
     def copy_selection(self):
         """Copy selected text to system clipboard."""

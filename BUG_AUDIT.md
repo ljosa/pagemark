@@ -217,6 +217,9 @@ document, then replace the selection only when there is content to insert.
 
 ## BUG-28: Several edit commands ignore the selection
 
+**Status:** Fixed; Enter replaces a selected range, deletion removes it, and
+empty selections fall back to normal cursor-based editing.
+
 **Source:** [pagemark/commands.py](pagemark/commands.py), `BackspaceCommand`
 (line 145), `DeleteCharCommand` (line 150), and `InsertNewlineCommand`
 (line 170).
