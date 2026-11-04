@@ -3,6 +3,8 @@
 The top is anchored to a content line. A marker preceding that line is outside
 this viewport. All visibility and paging decisions use the same row sequence.
 """
+from __future__ import annotations
+
 from dataclasses import dataclass, replace
 
 from .coordinates import ContentLineIndex, ScreenRowIndex

@@ -5,6 +5,8 @@ it to the destination column. Selection keeps its first anchor. Moving inherits
 style from the character on the left (or the first character at paragraph start);
 history can explicitly restore the insertion style instead.
 """
+from __future__ import annotations
+
 from dataclasses import dataclass
 from typing import Sequence
 

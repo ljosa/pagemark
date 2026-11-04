@@ -6,7 +6,7 @@ from .layout import DocumentLayout
 # Preserve the public imports used by existing clients.
 from .layout import (  # noqa: F401
     VisualLineMapper, get_line_mapper, render_paragraph,
-    get_hanging_indent_width, expand_styles_for_display,
+    get_hanging_indent_width, expand_styles_for_display, _get_hanging_indent_width,
 )
 from .viewport import PageBreakRow, TextRow, Viewport
 

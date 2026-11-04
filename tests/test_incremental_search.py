@@ -1,8 +1,10 @@
 """Tests for incremental search functionality."""
 
 import pytest
-from unittest.mock import MagicMock, Mock, PropertyMock
+from unittest.mock import MagicMock, Mock
 from pagemark.editor import Editor
+from pagemark.model import TextModel
+from pagemark.view import TerminalTextView
 from pagemark.keyboard import KeyEvent, KeyType
 
 
@@ -12,24 +14,17 @@ def editor_with_text():
     editor = MagicMock(spec=Editor)
     
     # Set up model with test paragraphs
-    editor.model = MagicMock()
-    editor.model.paragraphs = [
+    editor.view = TerminalTextView()
+    editor.view.num_columns = 65
+    editor.view.num_rows = 24
+    editor.model = TextModel(editor.view, [
         "The quick brown fox jumps over the lazy dog.",
         "This is a test file for incremental search functionality.",
         "We need to find words like search, test, and fox.",
         "The word search appears multiple times in this document.",
-    ]
-    
-    # Set up cursor position
-    cursor_pos = MagicMock()
-    cursor_pos.paragraph_index = 0
-    cursor_pos.character_index = 0
-    editor.model.cursor_position = cursor_pos
-    
-    # Set up view
-    editor.view = MagicMock()
-    editor.view.render = Mock()
-    
+    ])
+    editor.view.render()
+
     # Initialize search-related attributes
     editor._isearch_origin = None
     editor._isearch_last_match = None
