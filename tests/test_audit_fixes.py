@@ -8,6 +8,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from pagemark.keyboard import KeyType
 from pagemark.editor import Editor
 from pagemark.keyboard import KeyEvent
 from pagemark.model import CursorPosition, TextModel
@@ -89,3 +90,51 @@ def test_bug22_wrapping_preserves_content_and_mapping(width):
         content = paragraph[start:end].replace("—", "--")
         prefix = " " * mapper.hanging_width if index else ""
         assert line == prefix + content or line == prefix + content[:-1]
+
+
+def test_bug23_save_preserves_symlink_and_updates_target(editor, tmp_path):
+    target = tmp_path / "original.txt"
+    target.write_text("old", encoding="utf-8")
+    link = tmp_path / "link.txt"
+    link.symlink_to(target)
+    editor.load_file(str(link))
+    press(editor, KeyType.REGULAR, "new ")
+    assert editor.save_file(str(link))
+    assert (link.is_symlink(), target.read_text(encoding="utf-8")) == (True, "new old")
+
+
+@pytest.mark.parametrize("target_exists", [True, False])
+def test_bug23_relative_link_chain_across_directories(editor, tmp_path, target_exists):
+    directory = tmp_path / "documents"
+    directory.mkdir()
+    target = directory / "target.txt"
+    if target_exists:
+        target.write_text("old", encoding="utf-8")
+    intermediate = tmp_path / "intermediate.txt"
+    intermediate.symlink_to("documents/target.txt")
+    link = tmp_path / "alias.txt"
+    link.symlink_to("intermediate.txt")
+    editor.load_file(str(link))
+    set_text(editor, "new")
+    assert editor.save_file(str(link))
+    assert link.is_symlink() and intermediate.is_symlink()
+    assert target.read_text(encoding="utf-8") == "new"
+    assert editor.filename == str(link)
+
+
+def test_bug23_failed_save_preserves_symlink(editor, tmp_path, monkeypatch):
+    target = tmp_path / "target.txt"
+    target.write_text("old", encoding="utf-8")
+    link = tmp_path / "alias.txt"
+    link.symlink_to(target)
+    editor.load_file(str(link))
+    set_text(editor, "new")
+
+    def fail_replace(*args):
+        raise OSError("simulated replacement failure")
+
+    monkeypatch.setattr("pagemark.editor.os.replace", fail_replace)
+    assert not editor.save_file(str(link))
+    assert link.is_symlink()
+    assert target.read_text(encoding="utf-8") == "old"
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["alias.txt", "target.txt"]

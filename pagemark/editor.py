@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 import sys
 import select
 import signal
@@ -743,7 +744,10 @@ class Editor:
 
             # Write to a temporary file in the same directory for atomic save
             # This ensures we're on the same filesystem for the rename operation
-            dir_name = os.path.dirname(filename) or '.'
+            # Loading follows symlinks; save to that same destination while
+            # retaining the user's chosen filename for prompts and autosave.
+            target_path = Path(filename).resolve()
+            dir_name = str(target_path.parent)
 
             # Create temp file with same suffix as target
             suffix = os.path.splitext(filename)[1]
@@ -757,7 +761,7 @@ class Editor:
 
             # Atomic rename - this is atomic on POSIX systems
             # On Windows, it will overwrite existing file atomically
-            os.replace(temp_filename, filename)
+            os.replace(temp_filename, target_path)
 
             self.filename = filename
             self.modified = False

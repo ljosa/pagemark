@@ -82,6 +82,9 @@ explicitly. Merely clamping width to one does not fix the em-dash case.
 
 ## BUG-23: Saving a symlink replaces it instead of updating the opened file
 
+**Status:** Fixed; atomic saves resolve the destination while preserving the
+user-facing path and symlink.
+
 **Source:** [pagemark/editor.py](pagemark/editor.py), `load_file` (line 688) and
 `save_file` (lines 747–762).
 
