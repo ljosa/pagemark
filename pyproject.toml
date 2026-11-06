@@ -1,0 +1,22 @@
+[project]
+name = "pagemark-app"
+version = "0.2.10"
+description = "Sandboxed macOS front end for Pagemark"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+  "pyobjc-core==12.1",
+  "pyobjc-framework-Cocoa==12.1",
+  "reportlab==4.4.9",
+  "pillow==12.1.0",
+  "charset-normalizer==3.4.4",
+  "wcwidth==0.2.13",
+]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src", "tools"]
+
