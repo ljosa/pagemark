@@ -79,6 +79,7 @@ class PagemarkEditorView(A.NSView, protocols=[objc.protocolNamed("NSTextInputCli
     def configure(self, document):
         self.document = document
         self.session = document.session
+        self.session.model.clipboard = ClipboardManager()
         self.session.boundaries = composed_boundaries
         preferences = display_preferences()
         self.preferences = preferences
