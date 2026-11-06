@@ -263,8 +263,7 @@ def test_cancel_composition_restores_selection_without_creating_an_edit():
 def test_accessibility_uses_utf16_grapheme_and_shared_visual_line_ranges():
     view = PagemarkEditorView.alloc().initWithFrame_(F.NSMakeRect(0, 0, 800, 600))
     # Use production attachment, which installs Cocoa's grapheme segmenter.
-    view.configure(SimpleNamespace(session=EditorSession(plain("a😀\né🇳🇴")),
-                                   update_status=lambda: None))
+    view.configure(SimpleNamespace(session=EditorSession(plain("a😀\né🇳🇴"))))
     assert view.accessibilityNumberOfCharacters() == 10
     assert tuple(view.accessibilityRangeForIndex_(7)) == (6, 4)
     assert tuple(view.accessibilityRangeForLine_(0)) == (0, 4)

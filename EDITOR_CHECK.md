@@ -1,7 +1,8 @@
 # Editor preview checks on the Mac
 
-The current build is **0.2.10**, which adds **View > Fit Width** and
-**Resize Window to Fit**. It includes pinch and Command-+/−/0 zoom with
+The current build is **0.2.11**, which removes the status bar and keeps Find
+feedback beside its temporary search field. It includes **View > Fit Width**,
+**Resize Window to Fit**, and pinch and Command-+/−/0 zoom with
 remembered scales in place of the Draft font-size preference, plus Draft,
 appearance preferences, Full Screen and **File > Print Booklet…** from 0.2.8.
 It also includes shared paragraph-layout reuse,
@@ -29,10 +30,11 @@ is saving styled edits and verifying interchange with terminal Pagemark
 (step 5 below).
 
 After rebuilding, quit the earlier preview and run `tools/check_sandbox.command`.
-Both reports should identify version **0.2.10**. Phase 1 checks the runtime and
-sandbox; phase 2's eleven native editor checks, including `command_shortcuts`,
+Both reports should identify version **0.2.11**. Phase 1 checks the runtime and
+sandbox; phase 2's twelve native editor checks, including `command_shortcuts`,
 `command_navigation`, `native_recent_menu`, `native_document_open_callback`,
-`native_display_preferences`, `native_zoom_controls`, and `native_fit_actions`,
+`native_display_preferences`, `native_zoom_controls`, `native_fit_actions`,
+and `native_find_bar`,
 should all be true. The probe uses a
 disposable hidden window and a missing app-private fixture for the callback,
 never the contents of an existing document. If
@@ -45,6 +47,8 @@ The zoom check uses real key events, a native clip view and synthetic pinch
 deltas; physical trackpad event delivery still needs the interaction check.
 The fit check changes a disposable window's width at normal and large zoom,
 checks screen limits, and verifies Fit Width keeps the window frame unchanged.
+The Find check verifies no-match feedback, successful and cleared searches,
+resizing, and returning the full content area to the editor after closing Find.
 
 ## Short interaction check
 
@@ -66,7 +70,7 @@ checks screen limits, and verifies Fit Width keeps the window frame unchanged.
    (also Command-=). Zoom should stay anchored at the pointer for pinch and
    the visible center for keys, without jumping to the caret. Check selection
    after zooming. Draft remembers its own zoom; Continuous and Pages share
-   another. Relaunch to confirm those scales persist. Reset should show 100%.
+   another. Relaunch to confirm those scales persist. Reset returns to 100%.
    Select **Fit Width** in each view: the content should fit without resizing
    the window. Then choose a different zoom and select **Resize Window to Fit**:
    the window width should change while height and zoom stay fixed. Near a
@@ -79,6 +83,10 @@ checks screen limits, and verifies Fit Width keeps the window frame unchanged.
    The common editing actions also retain their Control aliases. Edit > Transform
    provides Capitalize/Uppercase/Lowercase Word. In search, Return finds
    the next occurrence; Shift-Tab finds the previous one; Escape closes search.
+   Try a term that is absent: “No matches” should appear beside the field,
+   then clear when a match is found or the query is erased. Resize with Find
+   open, then close and reopen it several times. Closing it should leave no
+   reserved strip or status bar below the editor.
 5. Add bold and underlined text to a disposable document and save it with
    Control-S. Quit and relaunch the app, then use **File > Open Recent**.
    Confirm the text and formatting survive. Reopen the same file in terminal

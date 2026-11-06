@@ -158,8 +158,9 @@ def check_editor():
         formatting = formatting and key("\x15", A.NSEventModifierFlagControl)
         formatting = formatting and document.session.value.styles[:3] == (0, 0, 0)
         shortcuts = shortcuts and key("f", A.NSEventModifierFlagCommand)
-        shortcuts = shortcuts and not document.search.isHidden()
-        document.control_textView_doCommandBySelector_(document.search, None, "cancelOperation:")
+        shortcuts = shortcuts and not document.find_bar.view.isHidden()
+        checkpoint("checking transient Find controls and full-height editor")
+        find_bar = check_find_bar(document)
         before = document.session.snapshot()
         checkpoint("checking view switching")
         for mode in (ViewMode.PAGES, ViewMode.DRAFT, ViewMode.CONTINUOUS):
@@ -180,11 +181,49 @@ def check_editor():
                 "view_switch_preserves_state": views, "native_recent_menu": recent,
                 "native_document_open_callback": open_callback,
                 "native_display_preferences": display, "native_zoom_controls": zoom,
-                "native_fit_actions": fit_actions}
+                "native_fit_actions": fit_actions, "native_find_bar": find_bar}
     finally:
         checkpoint("closing disposable editor document")
         document.close()
         app.setDelegate_(None)
+
+
+def check_find_bar(document):
+    import Foundation as F
+
+    editor, bar = document.editor, document.find_bar
+    scroll = editor.enclosingScrollView()
+    content = scroll.superview()
+    before = document.session.snapshot()
+    original_frame = editor.window().frame()
+    try:
+        # The Command-F shortcut has already opened Find. Reopening must not
+        # subtract another row from the viewport.
+        bar.show()
+        frame = scroll.frame()
+        valid = frame.origin.y == bar.HEIGHT and F.NSMaxY(frame) == content.bounds().size.height
+        bar.field.setStringValue_("no such text")
+        document.controlTextDidChange_(None)
+        valid = valid and bar.feedback.stringValue() == "No matches"
+        bar.field.setStringValue_("two")
+        document.controlTextDidChange_(None)
+        valid = valid and bar.feedback.stringValue() == "" and document.session.selection == (4, 7)
+        bar.field.setStringValue_("")
+        document.controlTextDidChange_(None)
+        valid = valid and bar.feedback.stringValue() == ""
+        frame = editor.window().frame()
+        frame.size.width -= 80
+        editor.window().setFrame_display_(frame, True)
+        valid = valid and F.NSMaxX(bar.field.frame()) < F.NSMinX(bar.feedback.frame())
+        valid = valid and F.NSMaxX(bar.feedback.frame()) <= content.bounds().size.width
+        for _ in range(2):
+            document.control_textView_doCommandBySelector_(bar.field, None, "cancelOperation:")
+            valid = valid and bar.view.isHidden() and scroll.frame() == content.bounds()
+        return valid and document.session.value == before.value
+    finally:
+        document.session.restore(before)
+        editor.window().setFrame_display_(original_frame, True)
+        bar.set_visible(False)
 
 
 def check_display_preferences(app, delegate):

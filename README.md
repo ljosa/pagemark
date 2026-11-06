@@ -3,7 +3,13 @@
 A sandboxed Mac front end for [terminal Pagemark](../pagemark). Product scope
 and implementation milestones are in [PLAN.md](PLAN.md).
 
-## Current build: editor preview 0.2.10
+## Current build: editor preview 0.2.11
+
+The editor fills the window without a status bar. **Command-F** opens a
+temporary Find row, with “No matches” beside the search field when needed;
+**Escape** closes it and restores the full editing area. Filenames and save
+state use the native document window and file dialogs. Recovery failures use
+the native error dialog, suppressing repeats until recovery succeeds again.
 
 **View > Fit Width** adjusts zoom to fit the existing window: the page area
 in Continuous/Pages, or the writing column in Draft. **View > Resize Window
@@ -14,7 +20,7 @@ window size unchanged.
 
 Pinch or use **Command-+ / Command-−** to zoom in any editor view;
 **Command-0** resets to 100%. Command-= also zooms in. The View menu offers
-Zoom In, Zoom Out and Actual Size, and the status bar shows the current scale.
+Zoom In, Zoom Out and Actual Size.
 Zoom is remembered separately for Draft and Continuous/Pages. It replaces the
 Draft font-size preference; existing saved sizes migrate to equivalent zoom.
 The font-family choice remains in Preferences. Printing keeps its physical size.
@@ -129,7 +135,8 @@ the app. The editor checks native Recent-menu registration, the document-open
 callback, Command/Control events, formatting, undo/redo, switching views, and
 native Preferences controls and appearance handling. The probe also checks
 zoom shortcuts, synthetic pinch input and native scroll anchors, plus both
-fit actions in a real hidden window. The 0.2.10 signed probe run and physical
+fit actions in a real hidden window, plus Find feedback and restoration of the
+full editing area after closing Find. The 0.2.11 signed probe run and physical
 trackpad interaction are pending.
 Each run retains its reports
 in `.build/check.*`; the latest

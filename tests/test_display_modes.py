@@ -35,7 +35,7 @@ def test_draft_geometry_matches_font_for_clicks_caret_and_accessibility(preferen
     session = EditorSession(StyledText(text, (0,) * len(text)))
     view = PagemarkEditorView.alloc().initWithFrame_(F.NSMakeRect(0, 0, 840, 692))
     view.double_spacing = double
-    view.configure(SimpleNamespace(session=session, update_status=lambda: None))
+    view.configure(SimpleNamespace(session=session))
     try:
         geometry = view.geometry
         font = view.painter.fonts[0]

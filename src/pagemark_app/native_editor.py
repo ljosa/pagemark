@@ -212,8 +212,6 @@ class PagemarkEditorView(A.NSView, protocols=[objc.protocolNamed("NSTextInputCli
         context = self.inputContext()
         if context:
             context.invalidateCharacterCoordinates()
-        if self.document:
-            self.document.update_status()
         A.NSAccessibilityPostNotification(self, A.NSAccessibilityValueChangedNotification)
         A.NSAccessibilityPostNotification(self, A.NSAccessibilitySelectedTextChangedNotification)
 

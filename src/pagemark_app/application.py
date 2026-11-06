@@ -11,6 +11,7 @@ from .codec import BOLD, UNDERLINE, StyledText, decode, encode, utf16_offsets
 from .cocoa_compat import configure_document_open_callback
 from .display_preferences import Appearance, ViewMode
 from .native_editor import PagemarkEditorView
+from .native_find import FindBar
 from .native_fitting import can_resize_window, fit_width, resize_window_to_fit
 from .native_preferences import PreferencesController, apply_appearance, display_preferences
 from .recovery import RecoveryStore
@@ -119,11 +120,10 @@ class PagemarkDocument(A.NSDocument):
             self.content = StyledText("", ())
             self.original_bytes = None
             self.session = EditorSession(on_change=self.editor_changed)
-            self.editor = self.status = self.search = None
+            self.editor = self.find_bar = None
             self.recovery_id = str(uuid.uuid4())
             self.recovery_timer = None
             self.recovery_error = None
-            self.search_origin = 0
         return self
 
     @classmethod
@@ -200,8 +200,7 @@ class PagemarkDocument(A.NSDocument):
                                    self.displayName(), self.original_bytes)
             self.recovery_error = None
         except (OSError, ValueError) as error:
-            self.recovery_error = "Recovery unavailable: " + str(error)
-        self.update_status()
+            self.report_recovery_error("Recovery unavailable: " + str(error))
 
     @objc.python_method
     def clear_recovery(self):
@@ -210,8 +209,17 @@ class PagemarkDocument(A.NSDocument):
             self.recovery_timer = None
         try:
             recovery_store().remove(self.recovery_id)
+            self.recovery_error = None
         except OSError as error:
-            self.recovery_error = "Could not remove recovery copy: " + str(error)
+            self.report_recovery_error("Could not remove recovery copy: " + str(error))
+
+    @objc.python_method
+    def report_recovery_error(self, message):
+        # A failed timer must not interrupt every subsequent keystroke with
+        # the same dialog. A successful recovery operation resets this state.
+        if message != self.recovery_error:
+            self.recovery_error = message
+            self.report_error(RuntimeError(message))
 
     def close(self):
         # NSDocument calls close only after its Save/Discard/Cancel decision.
@@ -233,26 +241,17 @@ class PagemarkDocument(A.NSDocument):
         window.setMinSize_((480, 320))
         window.center()
         content = window.contentView()
-        scroll = A.NSScrollView.alloc().initWithFrame_(F.NSMakeRect(0, 28, 840, 692))
+        scroll = A.NSScrollView.alloc().initWithFrame_(content.bounds())
         scroll.setAutoresizingMask_(A.NSViewWidthSizable | A.NSViewHeightSizable)
         scroll.setHasVerticalScroller_(True)
         scroll.setHasHorizontalScroller_(True)
         scroll.setAutohidesScrollers_(True)
-        editor = PagemarkEditorView.alloc().initWithFrame_(F.NSMakeRect(0, 0, 840, 692))
+        editor = PagemarkEditorView.alloc().initWithFrame_(content.bounds())
         scroll.setDocumentView_(editor)
         content.addSubview_(scroll)
         self.editor = editor
-        self.status = A.NSTextField.labelWithString_("")
-        self.status.setFrame_(F.NSMakeRect(12, 5, 816, 18))
-        self.status.setAutoresizingMask_(A.NSViewWidthSizable)
-        self.status.setFont_(A.NSFont.systemFontOfSize_(11))
-        content.addSubview_(self.status)
-        self.search = A.NSSearchField.alloc().initWithFrame_(F.NSMakeRect(12, 30, 400, 24))
-        self.search.setPlaceholderString_("Find — Return for next, Escape to finish")
-        self.search.setDelegate_(self)
-        self.search.setHidden_(True)
-        content.addSubview_(self.search)
         editor.configure(self)
+        self.find_bar = FindBar(editor, self)
         clip = scroll.contentView()
         clip.setPostsFrameChangedNotifications_(True)
         F.NSNotificationCenter.defaultCenter().addObserver_selector_name_object_(
@@ -260,20 +259,6 @@ class PagemarkDocument(A.NSDocument):
         window.makeFirstResponder_(editor)
         controller = A.NSWindowController.alloc().initWithWindow_(window)
         self.addWindowController_(controller)
-
-    @objc.python_method
-    def update_status(self):
-        if self.status and self.editor:
-            line = self.session.layout.line_for_position(self.session.model.navigation_state.cursor)
-            page = line // self.editor.geometry.rows_per_page + 1
-            style = self.session.model.caret_style
-            details = (f"Page {page} of {self.editor.geometry.page_count} · "
-                       f"{self.session.index.word_count} words · {self.editor.zoom:.0%}")
-            if style & BOLD:
-                details += " · Bold"
-            if style & UNDERLINE:
-                details += " · Underline"
-            self.status.setStringValue_(self.recovery_error or details)
 
     @objc.python_method
     def report_error(self, error):
@@ -286,7 +271,7 @@ class PagemarkDocument(A.NSDocument):
         elif action == "print":
             self.printDocument_(None)
         elif action == "find":
-            self.show_search()
+            self.find_bar.show()
         elif action in ("word_count", "help"):
             alert = A.NSAlert.alloc().init()
             alert.setMessageText_(f"{self.session.model.count_words()} words" if action == "word_count"
@@ -296,44 +281,11 @@ class PagemarkDocument(A.NSDocument):
                 alert.setInformativeText_(CONTROLS_HELP)
             alert.runModal()
 
-    @objc.python_method
-    def show_search(self):
-        self.editor.unmarkText()
-        self.search_origin = self.session.selection[0]
-        self.search.setHidden_(False)
-        scroll = self.editor.enclosingScrollView()
-        frame = scroll.frame()
-        frame.size.height -= 30 if frame.origin.y == 28 else 0
-        frame.origin.y = 58
-        scroll.setFrame_(frame)
-        self.editor.window().makeFirstResponder_(self.search)
-
     def controlTextDidChange_(self, notification):
-        query = str(self.search.stringValue())
-        if query and not self.session.find(query, self.search_origin):
-            self.status.setStringValue_("No matches")
-        else:
-            self.editor.refresh()
+        self.find_bar.text_changed()
 
     def control_textView_doCommandBySelector_(self, control, view, selector):
-        name = selector.decode() if isinstance(selector, bytes) else str(selector)
-        if name == "cancelOperation:":
-            self.search.setHidden_(True)
-            scroll = self.editor.enclosingScrollView()
-            frame = scroll.frame()
-            frame.size.height += 30
-            frame.origin.y = 28
-            scroll.setFrame_(frame)
-            self.editor.window().makeFirstResponder_(self.editor)
-            return True
-        if name in ("insertNewline:", "insertBacktab:"):
-            backwards = name == "insertBacktab:"
-            start, end = self.session.selection
-            if not self.session.find(str(self.search.stringValue()), start if backwards else end, backwards):
-                A.NSBeep()
-            self.editor.refresh()
-            return True
-        return False
+        return self.find_bar.command(selector)
 
     def printDocument_(self, sender):
         self.print_output(booklet=False)

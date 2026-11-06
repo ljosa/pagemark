@@ -1,6 +1,6 @@
 # Build status — 2026-11-05
 
-## Editor preview 0.2.10 — explicit content and window fitting
+## Editor preview 0.2.11 — full editor area without a status bar
 
 `dist/Pagemark.app` targets macOS 12/x86_64 and bundles its Python runtime and
 dependencies. Unmodified Pagemark model, clipboard, layout and PDF modules are
@@ -24,7 +24,7 @@ opens a private unsaved copy requiring a user-chosen save destination.
 
 ## Verified
 
-- **198 automated Mac tests pass**, covering codec compatibility, shared wrap/page
+- **205 automated Mac tests pass**, covering codec compatibility, shared wrap/page
   layout, page-gap hit testing, grapheme edits, insertion-style/selection
   snapshots, preferred-column movement, native undo and dirty state, UTF-16
   composition and cancellation, accessibility ranges, atomic recovery,
@@ -82,6 +82,26 @@ opens a private unsaved copy requiring a user-chosen save destination.
   Sandbox, user-selected read/write, printing and PyObjC's JIT capability.
   No network or broad-folder entitlement was added.
 
+## Status bar removal in 0.2.11
+
+The scroll view occupies the full document content area. `native_find.py`
+owns temporary Find controls and their no-match feedback; the document only
+forwards native search callbacks. Closing Find restores the full editor area,
+including after a resize or repeated open/close actions. Editor refresh no
+longer calls back into the document to calculate status text.
+
+Recovery write/cleanup failures use the existing native error presenter.
+Identical failures are reported once until a recovery operation succeeds,
+so a failing recovery timer does not repeatedly interrupt typing. Successful
+saves and recovery writes do not display confirmation messages.
+
+Seven regression cases check Find layout at three sizes, next/previous and
+wrapped search, clearing no-match feedback, unchanged edits/undo, and reporting
+recovery failures. Controls are replaced in automated Find tests because this
+execution sandbox cannot initialize WindowServer. The signed probe adds
+`native_find_bar` using real controls and window resizing. Its 0.2.11 run remains
+pending; 0.2.8 is the latest user-confirmed signed run.
+
 ## Fit actions in 0.2.10
 
 View > Fit Width changes the content zoom while preserving the window frame.
@@ -105,14 +125,14 @@ zoom path or native window API. No document mutation or undo is involved.
 Regression cases cover all three modes, native Draft font metrics, composition,
 unchanged printing, negative screen origins, minimum/maximum widths, fullscreen
 validation and scrollbar changes. The signed probe adds `native_fit_actions`
-to check both operations against a real hidden window. Its 0.2.10 run remains
-pending; 0.2.8 is the latest user-confirmed signed run.
+to check both operations against a real hidden window. These checks continue
+in 0.2.11; that signed run remains pending.
 
 ## Zoom in 0.2.9
 
 Pinch and Command-+/−/0 control screen zoom in all three views. Command-= is
-an alias for Zoom In. View-menu actions show the shortcuts, and the status bar
-shows the percentage. Scales are bounded to 50–500%; keyboard steps snap to
+an alias for Zoom In. View-menu actions show the shortcuts. Scales are bounded
+to 50–500%; keyboard steps snap to
 common percentages and Command-0 selects 100%. Initial scale remains 125%.
 Draft remembers its own zoom; Continuous and Pages share a separate scale.
 The removed Draft font-size preference migrates to equivalent zoom relative
@@ -132,7 +152,7 @@ view scales, limits, content anchors across page boundaries, active composition,
 undo and unchanged save bytes/print size. The signed editor probe adds
 `native_zoom_controls`: real key events, native clip scrolling and synthetic
 pinch deltas in all three views, without writing the user's preferences.
-These checks continue in 0.2.10; its run and physical pinch interaction remain pending. The latest
+These checks continue in 0.2.11; its run and physical pinch interaction remain pending. The latest
 user-confirmed signed run is 0.2.8, retained in `.build/check.xzz5Dg`.
 
 ## Display preferences in 0.2.8

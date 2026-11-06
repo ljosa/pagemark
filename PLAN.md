@@ -1,7 +1,8 @@
 # Pagemark for macOS — implementation plan
 
-Status: the current build is 0.2.10, adding explicit Fit Width and Resize Window
-to Fit actions. It includes pinch and Command-+/−/0 zoom with remembered
+Status: the current build is 0.2.11, removing the persistent status bar and
+keeping search feedback in a temporary Find row. It includes Fit Width and
+Resize Window to Fit actions, plus pinch and Command-+/−/0 zoom with remembered
 scales in place of the Draft font-size preference, along with
 Draft, font-family/appearance preferences, Full Screen, and File > Print Booklet.
 It includes shared layout reuse, batched Mac drawing and paragraph-local Unicode indices. The performance changes and module
@@ -47,9 +48,11 @@ below. Based on `../pagemark` and decisions made on 2026-11-05.
 
 ## Document windows and views
 
-Use one window per document, native menus and file panels, and a restrained
-status area for page/word information and incremental search. Default new
-documents to Continuous view; remember the view preference in app settings.
+Use one window per document, native menus and file panels, and no persistent
+status bar. Command-F opens temporary Find controls with their own no-match
+feedback; Escape closes them and returns the full window area to the editor.
+Native document windows and dialogs handle filenames, save state and errors.
+Default new documents to Continuous view; remember the view preference in app settings.
 
 All views edit the same document and use the same command, selection, undo,
 and layout state:
@@ -79,7 +82,7 @@ modes, appearance choices and Full Screen with separators. Appearance is an
 app-wide preference; System Default follows the operating system.
 
 Pinch and Command-+/−/0 zoom the editor from 50–500%; Command-0 means 100%.
-The View menu exposes zoom actions and the status bar shows the scale. Draft
+The View menu exposes zoom actions. Draft
 remembers its own scale; Continuous and Pages share a separate scale. Existing
 Draft font sizes migrate to zoom using a 14-point base. Zoom preserves the
 visible content anchor, selection, composition and undo, and leaves the print

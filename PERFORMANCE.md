@@ -36,7 +36,8 @@ platform responsibilities should not move into the pure layout module.
 - **`text_index.py`** owns source/UTF-16 prefix offsets and lazy paragraph
   grapheme indices. It reuses unchanged paragraph records and accepts a
   platform segmentation function without importing Cocoa. Selection and text
-  mutation stay in the editing session. Status word counts reuse these records.
+  mutation stay in the editing session. The status bar and its per-refresh
+  document callback were removed in 0.2.11.
 
 The shared patch was developed and tested in a workspace copy, then applied
 by the user to `../pagemark`, which this execution sandbox cannot write.
