@@ -283,7 +283,8 @@ def test_async_open_rechecks_startup_document_and_closes_it_only_once(monkeypatc
 
 
 @pytest.mark.parametrize("existing", [False, True])
-def test_launch_marks_only_automatically_created_document_transient(monkeypatch, existing):
+@pytest.mark.parametrize("restoration_first", [False, True])
+def test_launch_marks_only_automatically_created_document_transient(monkeypatch, existing, restoration_first):
     document = TransientTestDocument.alloc().init()
     documents = [document] if existing else []
     requests = []
@@ -301,6 +302,13 @@ def test_launch_marks_only_automatically_created_document_transient(monkeypatch,
         activateIgnoringOtherApps_=lambda activate: None))
     delegate = application.PagemarkDelegate.alloc().init()
     monkeypatch.setattr(delegate, "recoverDocuments_", lambda sender: None)
-    delegate.applicationDidFinishLaunching_(None)
+    events = [delegate.restorationFinished_, delegate.applicationDidFinishLaunching_]
+    if not restoration_first:
+        events.reverse()
+    events[0](None)
+    assert requests == []
+    events[1](None)
+    # Duplicate notifications must not run startup or recovery again.
+    events[1](None)
     assert document.transient_startup is (not existing)
     assert requests == ([] if existing else [True])

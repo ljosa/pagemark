@@ -20,6 +20,13 @@ The untouched blank document created at startup closes when another document
 opens successfully through Open, Open Recent, or Finder. Editing or saving it
 keeps it open; documents explicitly created with New are also kept.
 
+On relaunch, AppKit restores saved documents and their windows, including each
+editor's selection, scroll position, view mode, zoom, and single/double spacing.
+This follows macOS's **Desktop & Dock > Close windows when quitting an
+application** setting and Shift-launch suppression. Unsaved edits still use the
+existing Save/Discard/Cancel workflow; private crash-recovery copies remain
+available separately. Restoration does not enable automatic overwriting of files.
+
 **View > Fit Width** adjusts zoom to fit the existing window: the page area
 in Continuous/Pages, or the writing column in Draft. **View > Resize Window
 to Fit** adjusts window width at the current zoom, preserving height and

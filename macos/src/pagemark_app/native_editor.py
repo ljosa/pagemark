@@ -194,10 +194,20 @@ class PagemarkEditorView(A.NSView, protocols=[objc.protocolNamed("NSTextInputCli
     def viewportChanged_(self, notification):
         self.refresh(reveal=False)
 
+    def viewportScrolled_(self, notification):
+        self.invalidate_document_state()
+
+    @objc.python_method
+    def invalidate_document_state(self):
+        invalidate = getattr(self.document, "invalidateRestorableState", None)
+        if invalidate is not None:
+            invalidate()
+
     @objc.python_method
     def refresh(self, reveal=True):
         if self.session is None:
             return
+        self.invalidate_document_state()
         scroll = self.enclosingScrollView()
         width = scroll.contentSize().width if scroll else self.frame().size.width
         self.painter.configure(self.zoom, self.screen_font)

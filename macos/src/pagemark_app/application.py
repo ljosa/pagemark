@@ -17,6 +17,7 @@ from .native_help import HelpController
 from .native_fitting import can_resize_window, fit_width, resize_window_to_fit
 from .native_preferences import PreferencesController, apply_appearance, display_preferences
 from .recovery import RecoveryStore
+from .restoration import EditorRestorationState
 from .session import EditorSession, Snapshot
 from .zoom import command_zoom
 
@@ -127,6 +128,7 @@ class PagemarkDocument(A.NSDocument):
             self.recovery_id = str(uuid.uuid4())
             self.recovery_timer = None
             self.recovery_error = None
+            self.pending_editor_state = None
         return self
 
     @classmethod
@@ -227,6 +229,8 @@ class PagemarkDocument(A.NSDocument):
             self.report_error(RuntimeError(message))
 
     def close(self):
+        F.NSObject.cancelPreviousPerformRequestsWithTarget_selector_object_(
+            self, "restoreEditorState:", None)
         # NSDocument calls close only after its Save/Discard/Cancel decision.
         # Cancelling never reaches this method, so the recovery remains intact.
         self.clear_recovery()
@@ -240,7 +244,8 @@ class PagemarkDocument(A.NSDocument):
             A.NSWindowStyleMaskTitled | A.NSWindowStyleMaskClosable |
             A.NSWindowStyleMaskMiniaturizable | A.NSWindowStyleMaskResizable,
             A.NSBackingStoreBuffered, False)
-        window.setRestorable_(False)
+        window.setRestorable_(True)
+        window.setIdentifier_("PagemarkDocumentWindow")
         window.setCollectionBehavior_(A.NSWindowCollectionBehaviorFullScreenPrimary)
         window.setMinSize_((480, 320))
         window.center()
@@ -258,11 +263,36 @@ class PagemarkDocument(A.NSDocument):
         self.find_bar = FindBar(editor, self)
         clip = scroll.contentView()
         clip.setPostsFrameChangedNotifications_(True)
+        clip.setPostsBoundsChangedNotifications_(True)
         F.NSNotificationCenter.defaultCenter().addObserver_selector_name_object_(
             editor, "viewportChanged:", A.NSViewFrameDidChangeNotification, clip)
+        F.NSNotificationCenter.defaultCenter().addObserver_selector_name_object_(
+            editor, "viewportScrolled:", A.NSViewBoundsDidChangeNotification, clip)
         window.makeFirstResponder_(editor)
         controller = A.NSWindowController.alloc().initWithWindow_(window)
         self.addWindowController_(controller)
+        if self.pending_editor_state is not None:
+            self.performSelector_withObject_afterDelay_("restoreEditorState:", None, 0)
+
+    def encodeRestorableStateWithCoder_backgroundQueue_(self, coder, queue):
+        objc.super(PagemarkDocument, self).encodeRestorableStateWithCoder_backgroundQueue_(coder, queue)
+        # Implement only the modern entry point to avoid encoding twice.
+        # AppKit calls this on the main thread; only its own work is queued.
+        if self.editor is not None:
+            EditorRestorationState.capture(self.editor).encode(coder)
+
+    def restoreStateWithCoder_(self, coder):
+        objc.super(PagemarkDocument, self).restoreStateWithCoder_(coder)
+        self.pending_editor_state = EditorRestorationState.decode(coder)
+        if self.editor is not None and self.pending_editor_state is not None:
+            # AppKit finishes restoring window geometry before this next turn.
+            self.performSelector_withObject_afterDelay_("restoreEditorState:", None, 0)
+
+    def restoreEditorState_(self, sender):
+        state = self.pending_editor_state
+        self.pending_editor_state = None
+        if state is not None and self.editor is not None:
+            state.apply(self.editor)
 
     @objc.python_method
     def report_error(self, error):
@@ -346,16 +376,44 @@ class PagemarkDocument(A.NSDocument):
 
 
 class PagemarkDelegate(F.NSObject):
+    def init(self):
+        self = objc.super(PagemarkDelegate, self).init()
+        if self is not None:
+            self.launch_finished = self.restoration_finished = self.startup_finished = False
+        return self
+
+    def applicationSupportsSecureRestorableState_(self, app):
+        return True
+
     def application_shouldSaveApplicationState_(self, app, coder):
-        return False
+        return True
 
     def application_shouldRestoreApplicationState_(self, app, coder):
-        return False
+        return True
+
+    def applicationWillFinishLaunching_(self, notification):
+        F.NSNotificationCenter.defaultCenter().addObserver_selector_name_object_(
+            self, "restorationFinished:", A.NSApplicationDidFinishRestoringWindowsNotification,
+            notification.object())
+
+    def restorationFinished_(self, notification):
+        self.restoration_finished = True
+        self.finish_startup()
 
     def applicationShouldOpenUntitledFile_(self, app):
         return False
 
     def applicationDidFinishLaunching_(self, notification):
+        self.launch_finished = True
+        A.NSApp.activateIgnoringOtherApps_(True)
+        self.finish_startup()
+
+    @objc.python_method
+    def finish_startup(self):
+        if self.startup_finished or not (self.launch_finished and self.restoration_finished):
+            return
+        self.startup_finished = True
+        self.recoverDocuments_(None)
         controller = A.NSDocumentController.sharedDocumentController()
         if not controller.documents():
             document, error = controller.openUntitledDocumentAndDisplay_error_(True, None)
@@ -363,8 +421,6 @@ class PagemarkDelegate(F.NSObject):
                 document.transient_startup = True
             elif error is not None:
                 A.NSApp.presentError_(error)
-        A.NSApp.activateIgnoringOtherApps_(True)
-        self.recoverDocuments_(None)
 
     def application_openFiles_(self, app, filenames):
         controller = A.NSDocumentController.sharedDocumentController()

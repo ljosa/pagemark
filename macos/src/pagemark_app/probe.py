@@ -111,6 +111,12 @@ def check_editor():
     from .session import Snapshot
 
     class PagemarkEditorProbeDelegate(PagemarkDelegate):
+        def application_shouldSaveApplicationState_(self, app, coder):
+            return False
+
+        def application_shouldRestoreApplicationState_(self, app, coder):
+            return False
+
         def applicationDidFinishLaunching_(self, notification):
             # Complete AppKit's real launch sequence without opening a default
             # document or presenting the user's recovery dialog during a probe.

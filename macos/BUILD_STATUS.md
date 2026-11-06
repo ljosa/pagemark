@@ -423,3 +423,18 @@ No Developer ID or Apple Development identity is available. This local build
 is ad-hoc signed, sandboxed, without hardened runtime, and not notarized.
 Developer ID builds enable hardened runtime and require another runtime test
 and notarization. No library-validation bypass was added.
+# Native document restoration (2026-11-06)
+
+Document windows now opt into AppKit's secure state restoration. NSDocument and
+NSDocumentController own file reopening, sandbox access, and window restoration;
+Pagemark archives only versioned scalar editor UI state. Startup waits for both
+launch and window restoration before offering private crash recovery or creating
+a transient blank. Save/Discard/Cancel and the existing autosave policy remain.
+
+Validation includes secure NSKeyedArchiver round trips through the modern
+NSDocument encoding hook, bounded restoration after file changes, notification
+ordering, and scroll invalidation. A separately identified, ad-hoc signed copy
+passed a real three-launch test: two saved documents reopened with selections,
+view modes, both zoom levels, spacing, window positions, and scroll positions;
+quitting with NSQuitAlwaysKeepsWindows disabled suppressed restoration on the
+third launch. Test state and preferences were isolated from the main app.
