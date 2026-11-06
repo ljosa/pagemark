@@ -63,6 +63,7 @@ class PagemarkEditorView(A.NSView, protocols=[objc.protocolNamed("NSTextInputCli
             self.session = None
             self.view_mode = ViewMode.CONTINUOUS
             self.draft_font = DraftFont()
+            self.draft_line_spacing = 1.0
             self.double_spacing = False
             self._zoom_levels = {False: DEFAULT_ZOOM, True: DEFAULT_ZOOM}
             self.preferences = None
@@ -87,6 +88,7 @@ class PagemarkEditorView(A.NSView, protocols=[objc.protocolNamed("NSTextInputCli
                              True: preferences.zoom_for(ViewMode.DRAFT)}
         self.view_mode = preferences.view_mode
         self.draft_font = preferences.draft_font
+        self.draft_line_spacing = preferences.draft_line_spacing
         self.refresh(reveal=False)
 
     @property
@@ -202,7 +204,8 @@ class PagemarkEditorView(A.NSView, protocols=[objc.protocolNamed("NSTextInputCli
         metrics = self.painter.metrics if self.view_mode == ViewMode.DRAFT else None
         self.geometry = EditorGeometry(self.session.layout.line_count, width,
                                        self.view_mode == ViewMode.PAGES, self.double_spacing,
-                                       self.zoom, self.session.num_columns, metrics)
+                                       self.zoom, self.session.num_columns, metrics,
+                                       draft_line_spacing=self.draft_line_spacing)
         height = max(self.geometry.height, scroll.contentSize().height if scroll else 0)
         self.setFrameSize_((self.geometry.width, height))
         self.caret_visible = True

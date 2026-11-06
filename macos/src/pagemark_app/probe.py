@@ -284,7 +284,7 @@ def check_find_bar(document):
 
 def check_display_preferences(app, delegate):
     import AppKit as A
-    from .display_preferences import Appearance
+    from .display_preferences import Appearance, DRAFT_LINE_SPACINGS
     from .native_preferences import PreferencesController, apply_appearance, display_preferences
 
     # Exercise real controls in a hidden preferences window. No user defaults
@@ -295,6 +295,9 @@ def check_display_preferences(app, delegate):
         window = controller.window()
         valid = bool(window and controller.family.numberOfItems())
         valid = valid and bool(controller.family.selectedItem().representedObject())
+        valid = valid and controller.spacing.numberOfItems() == len(DRAFT_LINE_SPACINGS)
+        valid = valid and (float(controller.spacing.selectedItem().representedObject())
+                           == display_preferences().draft_line_spacing)
         valid = valid and not hasattr(controller, "size")
         for choice, name in ((Appearance.LIGHT, A.NSAppearanceNameAqua),
                              (Appearance.DARK, A.NSAppearanceNameDarkAqua), (Appearance.SYSTEM, None)):

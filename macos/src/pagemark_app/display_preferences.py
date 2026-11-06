@@ -5,6 +5,8 @@ from math import isfinite
 
 from .zoom import DEFAULT_ZOOM, bounded_zoom
 
+DRAFT_LINE_SPACINGS = (1.0, 1.25, 1.5, 2.0)
+
 
 class ViewMode(IntEnum):
     CONTINUOUS = 0
@@ -82,6 +84,17 @@ class DisplayPreferences:
         if not isfinite(size) or not 8 <= size <= 48:
             return DEFAULT_ZOOM
         return bounded_zoom(DEFAULT_ZOOM * size / DraftFont.size)
+
+    @property
+    def draft_line_spacing(self):
+        value = self.defaults.objectForKey_("DraftLineSpacing")
+        return float(value) if value in DRAFT_LINE_SPACINGS else 1.0
+
+    @draft_line_spacing.setter
+    def draft_line_spacing(self, value):
+        if value not in DRAFT_LINE_SPACINGS:
+            raise ValueError("Choose a supported draft line spacing")
+        self.defaults.setDouble_forKey_(float(value), "DraftLineSpacing")
 
     def set_zoom(self, mode, value):
         key = "DraftZoom" if ViewMode(mode) == ViewMode.DRAFT else "LayoutZoom"

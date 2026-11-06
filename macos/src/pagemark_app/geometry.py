@@ -19,6 +19,7 @@ class EditorGeometry:
     zoom: float = 1.25
     columns: int = 65
     draft_metrics: CellMetrics | None = None
+    draft_line_spacing: float = 1.0
 
     @property
     def rows_per_page(self):
@@ -37,7 +38,7 @@ class EditorGeometry:
     @property
     def line_height(self):
         if self.draft_metrics:
-            return self.draft_metrics.height * (2 if self.double_spacing else 1)
+            return self.draft_metrics.height * self.draft_line_spacing
         return (24 if self.double_spacing else 12) * self.zoom
 
     @property

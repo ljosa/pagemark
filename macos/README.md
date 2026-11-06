@@ -36,6 +36,9 @@ The font-family choice remains in Preferences. Printing keeps its physical size.
 
 **View > Draft** adds a continuous writing view with a configurable monospaced
 screen font. Choose its font family in **Pagemark > Preferences…** (Command-,).
+Preferences also offers Single, 1.25, 1.5, and Double line spacing for Draft.
+Draft spacing is remembered across launches and applies to all Draft windows;
+it does not change Continuous/Pages spacing or printing.
 The default is JetBrains Mono NL when installed, with Menlo as a fallback.
 The View menu now also offers **Light Mode**, **Dark Mode**, **System Default**,
 and **Enter Full Screen** (Control-Command-F), grouped with separators.

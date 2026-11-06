@@ -79,6 +79,7 @@ def test_modes_and_font_changes_preserve_document_layout_selection_undo_and_prin
         for mode in (ViewMode.PAGES, ViewMode.DRAFT, ViewMode.CONTINUOUS, ViewMode.DRAFT):
             view.view_mode = mode
             view.draft_font = DraftFont("Menlo-Regular", 24)
+            view.draft_line_spacing = 1.5
             view.refresh()
             assert document.session.snapshot() == before
             assert document.session.layout is layout
@@ -205,3 +206,51 @@ def test_font_action_updates_existing_draft_views_without_changing_other_modes(p
     assert all(editor.draft_font == preferences.draft_font for editor in editors)
     assert refreshed == [ViewMode.DRAFT]
     assert preferences.appearance == Appearance.SYSTEM
+
+
+@pytest.mark.parametrize("spacing", [1, 1.25, 1.5, 2])
+def test_draft_spacing_action_updates_all_views_and_relaunch(preferences, monkeypatch, spacing):
+    refreshed = []
+    editors = [SimpleNamespace(view_mode=mode,
+                               refresh=lambda mode=mode: refreshed.append(mode)) for mode in ViewMode]
+    monkeypatch.setattr(A, "NSDocumentController", SimpleNamespace(sharedDocumentController=lambda:
+        SimpleNamespace(documents=lambda: [SimpleNamespace(editor=e) for e in editors])))
+    controller = PreferenceActionTestController.alloc().init()
+    item = A.NSMenuItem.alloc().initWithTitle_action_keyEquivalent_("Spacing", None, "")
+    item.setRepresentedObject_(spacing)
+    controller.spacing = SimpleNamespace(selectedItem=lambda: item)
+    controller.performSelector_withObject_("changeDraftLineSpacing:", None)
+    assert refreshed == [ViewMode.DRAFT]
+    assert all(editor.draft_line_spacing == spacing for editor in editors)
+    assert DisplayPreferences(preferences.defaults).draft_line_spacing == spacing
+
+
+@pytest.mark.parametrize("spacing", [1.25, 1.5, 2])
+@pytest.mark.parametrize("double", [False, True])
+def test_draft_spacing_changes_only_screen_line_height(preferences, spacing, double):
+    preferences.view_mode = ViewMode.DRAFT
+    preferences.draft_line_spacing = spacing
+    text = "\n".join(["abc def"] * 125)
+    session = EditorSession(StyledText(text, (0,) * len(text)))
+    session.select(1, 4)
+    before = session.snapshot()
+    view = PagemarkEditorView.alloc().initWithFrame_(F.NSMakeRect(0, 0, 840, 692))
+    view.double_spacing = double
+    view.configure(SimpleNamespace(session=session))
+    try:
+        geometry = view.geometry
+        assert geometry.line_height == pytest.approx(view.painter.metrics.height * spacing)
+        assert geometry.ink_height == view.painter.metrics.height
+        for line in range(session.layout.line_count):
+            x, y = geometry.point(line, 2)
+            position = geometry.hit(session.layout, x, y + geometry.line_height / 2)
+            assert (position.paragraph_index, position.character_index) == (line, 2)
+        assert view.caret_rect().size.height == geometry.ink_height
+        for mode in (ViewMode.CONTINUOUS, ViewMode.PAGES):
+            view.view_mode = mode
+            view.refresh()
+            assert view.geometry.line_height == (24 if double else 12) * view.zoom
+        assert view.double_spacing is double
+        assert session.snapshot() == before
+    finally:
+        view.teardown()

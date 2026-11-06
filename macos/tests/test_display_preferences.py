@@ -66,3 +66,20 @@ def test_stored_zoom_is_bounded_and_invalid_values_are_safe(stored, expected):
     preferences = DisplayPreferences(MemoryDefaults(LayoutZoom=stored, DraftZoom=stored))
     assert preferences.zoom_for(ViewMode.CONTINUOUS) == expected
     assert preferences.zoom_for(ViewMode.DRAFT) == expected
+
+
+@pytest.mark.parametrize("spacing", [1, 1.25, 1.5, 2])
+def test_draft_line_spacing_survives_relaunch(spacing):
+    defaults = MemoryDefaults()
+    preferences = DisplayPreferences(defaults)
+    assert preferences.draft_line_spacing == 1
+    preferences.draft_line_spacing = spacing
+    assert DisplayPreferences(defaults).draft_line_spacing == spacing
+
+
+@pytest.mark.parametrize("value", [None, "bad", [], -1, 0, 1.1, 100, float("nan"), float("inf")])
+def test_invalid_draft_line_spacing_defaults_to_single(value):
+    preferences = DisplayPreferences(MemoryDefaults(DraftLineSpacing=value))
+    assert preferences.draft_line_spacing == 1
+    with pytest.raises(ValueError):
+        preferences.draft_line_spacing = value
