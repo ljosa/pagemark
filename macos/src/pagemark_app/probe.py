@@ -161,6 +161,8 @@ def check_editor():
         shortcuts = shortcuts and not document.find_bar.view.isHidden()
         checkpoint("checking transient Find controls and full-height editor")
         find_bar = check_find_bar(document)
+        checkpoint("checking Center Line and word transformation shortcuts")
+        transforms = check_transform_shortcuts(editor, key)
         before = document.session.snapshot()
         checkpoint("checking view switching")
         for mode in (ViewMode.PAGES, ViewMode.DRAFT, ViewMode.CONTINUOUS):
@@ -175,17 +177,64 @@ def check_editor():
         zoom = check_zoom(editor)
         checkpoint("checking Fit Width and Resize Window to Fit")
         fit_actions = check_fit_actions(editor)
+        checkpoint("checking reusable Help window and independent menu validation")
+        help_window = check_help_window(app, delegate)
         return {"native_editor_window_created": True, "command_navigation": navigation,
                 "command_shortcuts": shortcuts,
                 "control_formatting": formatting, "native_undo_redo": undo,
                 "view_switch_preserves_state": views, "native_recent_menu": recent,
                 "native_document_open_callback": open_callback,
                 "native_display_preferences": display, "native_zoom_controls": zoom,
-                "native_fit_actions": fit_actions, "native_find_bar": find_bar}
+                "native_fit_actions": fit_actions, "native_find_bar": find_bar,
+                "native_transform_shortcuts": transforms, "native_help_window": help_window}
     finally:
         checkpoint("closing disposable editor document")
         document.close()
         app.setDelegate_(None)
+
+
+def check_transform_shortcuts(editor, key):
+    import AppKit as A
+    from .codec import StyledText
+    from .session import Snapshot
+
+    before = editor.session.snapshot()
+    try:
+        for letter, shift, expected in (("e", False, " " * 30 + "mIXed"),
+                                         ("C", True, "Mixed"), ("U", True, "MIXED"),
+                                         ("L", True, "mixed")):
+            editor.session.restore(Snapshot(StyledText("mIXed", (0,) * 5), 0, None, 0))
+            editor.refresh()
+            modifiers = A.NSEventModifierFlagCommand | (A.NSEventModifierFlagShift if shift else 0)
+            if not key(letter, modifiers) or editor.session.value.text != expected:
+                return False
+            editor.document.undoManager().undo()
+            if editor.session.value.text != "mIXed":
+                return False
+        return True
+    finally:
+        editor.session.restore(before)
+        editor.refresh()
+
+
+def check_help_window(app, delegate):
+    from .native_help import HelpController
+
+    item = app.mainMenu().itemWithTitle_("Help").submenu().itemWithTitle_("Pagemark Help")
+    controller = HelpController.alloc().init()
+    try:
+        window = controller.window()
+        text = controller.text_view
+        valid = not text.isEditable() and text.isSelectable()
+        valid = valid and "Center line\t⌘E" in str(text.string())
+        text.layoutManager().ensureLayoutForTextContainer_(text.textContainer())
+        valid = valid and text.frame().size.height > window.contentView().bounds().size.height
+        for _ in range(2):
+            controller.close()
+            valid = valid and controller.window() == window and delegate.validateMenuItem_(item)
+        return valid
+    finally:
+        controller.close()
 
 
 def check_find_bar(document):

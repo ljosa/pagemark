@@ -68,6 +68,25 @@ def test_command_arrows_extend_selection_and_shift_command_z_redoes(editor):
     assert editor.commands == [("word_right", True), ("redo", True)]
 
 
+@pytest.mark.parametrize("letter,shift,action", [
+    ("e", False, "center_line"), ("C", True, "capitalize_word"),
+    ("U", True, "upcase_word"), ("L", True, "downcase_word"),
+])
+def test_center_and_word_transform_shortcuts(editor, letter, shift, action):
+    modifiers = A.NSEventModifierFlagCommand | (A.NSEventModifierFlagShift if shift else 0)
+    assert editor.performKeyEquivalent_(event(letter, modifiers))
+    assert editor.commands == [(action, shift)]
+    if letter == "e":
+        assert editor.performKeyEquivalent_(event("\x05", A.NSEventModifierFlagControl))
+        assert editor.commands[-1] == ("line_end", False)
+
+
+@pytest.mark.parametrize("letter", ["m", "l"])
+def test_replaced_command_bindings_are_available_to_native_menus(editor, letter):
+    assert not editor.performKeyEquivalent_(event(letter, A.NSEventModifierFlagCommand))
+    assert not editor.commands
+
+
 @pytest.mark.parametrize("character,shift,command", [
     ("+", False, "zoom_in"), ("+", True, "zoom_in"), ("=", False, "zoom_in"),
     ("=", True, "zoom_in"), ("-", False, "zoom_out"), ("0", False, "zoom_reset"),
@@ -115,7 +134,7 @@ def test_visible_menus_show_command_shortcuts_and_preserve_native_responder_rout
                 "File": {"Save": "s", "Print…": "p"},
                 "Edit": {"Find…": "f", "Cut": "x", "Copy": "c", "Paste": "v",
                          "Undo": "z", "Redo": "y"},
-                "Format": {"Bold": "b", "Underline": "u"}}
+                "Format": {"Bold": "b", "Underline": "u", "Center Line": "e"}}
     for name, commands in expected.items():
         menu = app.menu.itemWithTitle_(name).submenu()
         for title, key in commands.items():
@@ -129,3 +148,6 @@ def test_visible_menus_show_command_shortcuts_and_preserve_native_responder_rout
     transform = edit.itemWithTitle_("Transform").submenu()
     assert [item.representedObject() for item in transform.itemArray()] == [
         "capitalize_word", "upcase_word", "downcase_word"]
+    assert [item.keyEquivalent() for item in transform.itemArray()] == ["c", "u", "l"]
+    assert all(item.keyEquivalentModifierMask() == (
+        A.NSEventModifierFlagCommand | A.NSEventModifierFlagShift) for item in transform.itemArray())

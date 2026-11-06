@@ -12,6 +12,7 @@ from .cocoa_compat import configure_document_open_callback
 from .display_preferences import Appearance, ViewMode
 from .native_editor import PagemarkEditorView
 from .native_find import FindBar
+from .native_help import HelpController
 from .native_fitting import can_resize_window, fit_width, resize_window_to_fit
 from .native_preferences import PreferencesController, apply_appearance, display_preferences
 from .recovery import RecoveryStore
@@ -272,13 +273,11 @@ class PagemarkDocument(A.NSDocument):
             self.printDocument_(None)
         elif action == "find":
             self.find_bar.show()
-        elif action in ("word_count", "help"):
+        elif action == "help":
+            A.NSApp.delegate().showHelp_(None)
+        elif action == "word_count":
             alert = A.NSAlert.alloc().init()
-            alert.setMessageText_(f"{self.session.model.count_words()} words" if action == "word_count"
-                                  else "Pagemark keyboard controls")
-            if action == "help":
-                from .key_bindings import CONTROLS_HELP
-                alert.setInformativeText_(CONTROLS_HELP)
+            alert.setMessageText_(f"{self.session.model.count_words()} words")
             alert.runModal()
 
     def controlTextDidChange_(self, notification):
@@ -432,6 +431,11 @@ class PagemarkDelegate(F.NSObject):
             self.preferences_controller = PreferencesController.alloc().init()
         self.preferences_controller.showWindow_(sender)
 
+    def showHelp_(self, sender):
+        if not getattr(self, "help_controller", None):
+            self.help_controller = HelpController.alloc().init()
+        self.help_controller.showWindow_(sender)
+
     def changeSpacing_(self, sender):
         document = A.NSDocumentController.sharedDocumentController().currentDocument()
         if document and document.editor:
@@ -440,6 +444,8 @@ class PagemarkDelegate(F.NSObject):
 
     def validateMenuItem_(self, item):
         action = item.action()
+        if action == "showHelp:":
+            return True
         if action == "changeAppearance:":
             item.setState_(int(display_preferences().appearance == str(item.representedObject())))
             return True
@@ -569,14 +575,17 @@ def configure_menu(app, delegate):
     add_item(edit, "Word Count", "editorCommand:", "w", delegate, control=True).setRepresentedObject_("word_count")
     transform = A.NSMenu.alloc().initWithTitle_("Transform")
     add_item(edit, "Transform", None).setSubmenu_(transform)
-    for title, command in (("Capitalize Word", "capitalize_word"),
-                           ("Uppercase Word", "upcase_word"), ("Lowercase Word", "downcase_word")):
-        add_item(transform, title, "editorCommand:", target=delegate).setRepresentedObject_(command)
+    for title, command, key in (("Capitalize Word", "capitalize_word", "c"),
+                                ("Uppercase Word", "upcase_word", "u"),
+                                ("Lowercase Word", "downcase_word", "l")):
+        item = add_item(transform, title, "editorCommand:", key, delegate)
+        item.setRepresentedObject_(command)
+        item.setKeyEquivalentModifierMask_(A.NSEventModifierFlagCommand | A.NSEventModifierFlagShift)
     format_menu = A.NSMenu.alloc().initWithTitle_("Format")
     add_item(main, "Format", None).setSubmenu_(format_menu)
     for title, command, key in (("Bold", "bold", "b"), ("Underline", "underline", "u")):
         add_item(format_menu, title, "editorCommand:", key, delegate).setRepresentedObject_(command)
-    add_item(format_menu, "Center Line", "editorCommand:", target=delegate).setRepresentedObject_("center_line")
+    add_item(format_menu, "Center Line", "editorCommand:", "e", delegate).setRepresentedObject_("center_line")
     format_menu.addItem_(A.NSMenuItem.separatorItem())
     add_item(format_menu, "Single Spacing", "changeSpacing:", target=delegate).setTag_(1)
     add_item(format_menu, "Double Spacing", "changeSpacing:", target=delegate).setTag_(2)
@@ -608,7 +617,7 @@ def configure_menu(app, delegate):
     add_item(window, "Zoom", "performZoom:")
     help_menu = A.NSMenu.alloc().initWithTitle_("Help")
     add_item(main, "Help", None).setSubmenu_(help_menu)
-    add_item(help_menu, "Pagemark Controls", "editorCommand:", target=delegate).setRepresentedObject_("help")
+    add_item(help_menu, "Pagemark Help", "showHelp:", target=delegate)
     app.setWindowsMenu_(window)
     app.setMainMenu_(main)
 

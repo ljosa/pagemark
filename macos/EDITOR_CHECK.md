@@ -1,6 +1,6 @@
 # Editor preview checks on the Mac
 
-The current build is **0.2.12**, which uses the shared core directly and keeps Find
+The current build is **0.2.13**, which uses the shared core directly and keeps Find
 feedback beside its temporary search field. It includes **View > Fit Width**,
 **Resize Window to Fit**, and pinch and Command-+/−/0 zoom with
 remembered scales in place of the Draft font-size preference, plus Draft,
@@ -30,11 +30,11 @@ is saving styled edits and verifying interchange with terminal Pagemark
 (step 5 below).
 
 After rebuilding, quit the earlier preview and run `tools/check_sandbox.command`.
-Both reports should identify version **0.2.12**. Phase 1 checks the runtime and
-sandbox; phase 2's twelve native editor checks, including `command_shortcuts`,
+Both reports should identify version **0.2.13**. Phase 1 checks the runtime and
+sandbox; phase 2's fourteen native editor checks, including `command_shortcuts`,
 `command_navigation`, `native_recent_menu`, `native_document_open_callback`,
 `native_display_preferences`, `native_zoom_controls`, `native_fit_actions`,
-and `native_find_bar`,
+`native_find_bar`, `native_transform_shortcuts`, and `native_help_window`,
 should all be true. The probe uses a
 disposable hidden window and a missing app-private fixture for the callback,
 never the contents of an existing document. If
@@ -78,10 +78,13 @@ resizing, and returning the full content area to the editor after closing Find.
    the usable screen width. Check that only the resize action is disabled in
    full screen, and that ordinary pinch/keyboard zoom keeps the window fixed.
 4. Check Command-Left/Right for word movement, Command-B/U for formatting,
-   Command-M for centering a short paragraph, Command-C/V for styled copy/paste,
+   Command-E for centering a short paragraph, Command-C/V for styled copy/paste,
    Command-Z/Y (also Shift-Command-Z) for undo/redo, and Command-F for search.
    The common editing actions also retain their Control aliases. Edit > Transform
-   provides Capitalize/Uppercase/Lowercase Word. In search, Return finds
+   provides Capitalize/Uppercase/Lowercase Word with Shift-Command-C/U/L.
+   Open Help > Pagemark Help, close it, and reopen it twice. It should remain
+   enabled while Find or Preferences has focus and with no document open.
+   The help window should scroll, allow copying text, and close with Command-W. In search, Return finds
    the next occurrence; Shift-Tab finds the previous one; Escape closes search.
    Try a term that is absent: “No matches” should appear beside the field,
    then clear when a match is found or the query is erased. Resize with Find

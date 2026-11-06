@@ -1,6 +1,6 @@
 # Build status — 2026-11-05
 
-## Editor preview 0.2.12 — unified repository and shared core
+## Editor preview 0.2.13 — word shortcuts and reusable Help
 
 `macos/dist/Pagemark.app` targets macOS 12/x86_64 and bundles its Python runtime
 and dependencies. Both front ends now import `pagemark_core` directly from the
@@ -25,7 +25,7 @@ opens a private unsaved copy requiring a user-chosen save destination.
 
 ## Verified
 
-- **207 automated Mac tests pass**, covering codec compatibility, shared wrap/page
+- **216 automated Mac tests pass**, covering codec compatibility, shared wrap/page
   layout, page-gap hit testing, grapheme edits, insertion-style/selection
   snapshots, preferred-column movement, native undo and dirty state, UTF-16
   composition and cancellation, accessibility ranges, atomic recovery,
@@ -84,6 +84,23 @@ opens a private unsaved copy requiring a user-chosen save destination.
   Sandbox, user-selected read/write, printing and PyObjC's JIT capability.
   No network or broad-folder entitlement was added.
 
+## Shortcuts and Help in 0.2.13
+
+Command-E centers the line. Shift-Command-C/U/L capitalize, uppercase or
+lowercase the word. The menu equivalents match the editor's key policy.
+Control-E still moves to the end of the line; Command-M uses native Minimize.
+
+Help previously shared the editor-command validator, which required the editor
+to be first responder. It now has an independent application action, available
+without a document or editor focus. A retained window controller owns a
+nonmodal, selectable, scrollable reference with grouped commands and aligned
+shortcut columns. Closing the window does not discard its controller.
+
+Native key-event tests check the new bindings and freed equivalents. Menu and
+Objective-C dispatch tests check Help without a document, after focus changes,
+and across repeated opens/closes. The signed probe adds native transformation
+and Help-window checks. Live window reopening still needs a normal Terminal run.
+
 ## Repository consolidation in 0.2.12
 
 The Mac app is under `macos/`, retaining its two original commits in the
@@ -115,7 +132,7 @@ Seven regression cases check Find layout at three sizes, next/previous and
 wrapped search, clearing no-match feedback, unchanged edits/undo, and reporting
 recovery failures. Controls are replaced in automated Find tests because this
 execution sandbox cannot initialize WindowServer. The signed probe adds
-`native_find_bar` using real controls and window resizing. Its 0.2.12 run remains
+`native_find_bar` using real controls and window resizing. Its 0.2.13 run remains
 pending; 0.2.8 is the latest user-confirmed signed run.
 
 ## Fit actions in 0.2.10
@@ -142,7 +159,7 @@ Regression cases cover all three modes, native Draft font metrics, composition,
 unchanged printing, negative screen origins, minimum/maximum widths, fullscreen
 validation and scrollbar changes. The signed probe adds `native_fit_actions`
 to check both operations against a real hidden window. These checks continue
-in 0.2.12; that signed run remains pending.
+in 0.2.13; that signed run remains pending.
 
 ## Zoom in 0.2.9
 
@@ -168,7 +185,7 @@ view scales, limits, content anchors across page boundaries, active composition,
 undo and unchanged save bytes/print size. The signed editor probe adds
 `native_zoom_controls`: real key events, native clip scrolling and synthetic
 pinch deltas in all three views, without writing the user's preferences.
-These checks continue in 0.2.12; its run and physical pinch interaction remain pending. The latest
+These checks continue in 0.2.13; its run and physical pinch interaction remain pending. The latest
 user-confirmed signed run is 0.2.8, retained in `.build/check.xzz5Dg`.
 
 ## Display preferences in 0.2.8

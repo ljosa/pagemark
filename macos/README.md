@@ -3,7 +3,7 @@
 A sandboxed Mac front end for [terminal Pagemark](../README.md). Product scope
 and implementation milestones are in [PLAN.md](PLAN.md).
 
-## Current build: editor preview 0.2.12
+## Current build: editor preview 0.2.13
 
 The Mac app now lives alongside the terminal app. Both import `pagemark_core`
 directly; OS access lives in `pagemark_platform`. See the repository
@@ -54,7 +54,10 @@ Their Control aliases also work in the editor. Command-arrow navigation and
 the remaining Emacs commands are retained; Edit > Transform offers word casing.
 Mouse selection, trackpad scrolling, native text composition, styled clipboard,
 search, explicit Save/Save As, Open Recent and private crash recovery are wired
-up. **Help > Pagemark Controls** lists the bindings.
+up. **Help > Pagemark Help** opens a reusable, scrollable keyboard reference,
+with or without an open document. **Command-E** centers the line;
+**Shift-Command-C/U/L** capitalize, uppercase or lowercase a word. The menus
+show these shortcuts. Command-M remains available for Minimize.
 
 Continuous, Pages and output currently use Courier, with single/double spacing,
 shared PDF export, booklet imposition and the native print panel. Choose
@@ -139,7 +142,7 @@ callback, Command/Control events, formatting, undo/redo, switching views, and
 native Preferences controls and appearance handling. The probe also checks
 zoom shortcuts, synthetic pinch input and native scroll anchors, plus both
 fit actions in a real hidden window, plus Find feedback and restoration of the
-full editing area after closing Find. The 0.2.12 signed probe run and physical
+full editing area after closing Find. The 0.2.13 signed probe run and physical
 trackpad interaction are pending.
 Each run retains its reports
 in `.build/check.*`; the latest
