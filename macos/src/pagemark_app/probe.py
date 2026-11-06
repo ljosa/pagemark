@@ -29,7 +29,9 @@ def checkpoint(message):
 
 def check_recent_menu(app, delegate):
     """Check registration; AppKit populates the menu when tracking begins."""
+    import AppKit as A
     import Foundation as F
+    import objc
 
     menus = []
     for top in app.mainMenu().itemArray():
@@ -61,9 +63,13 @@ def check_recent_menu(app, delegate):
             status["resolved_clear_target"] = type(resolved).__name__ if resolved is not None else None
             bundle = F.NSBundle.bundleForClass_(type(resolved)) if resolved is not None else None
             status["clear_target_bundle"] = str(bundle.bundleIdentifier()) if bundle else None
+            # Our document controller inherits AppKit's Clear Menu action even
+            # though the subclass itself belongs to the application bundle.
             status["native_clear_target"] = bool(
                 resolved is not None and resolved.respondsToSelector_(item.action())
-                and status["clear_target_bundle"] == "com.apple.AppKit")
+                and (status["clear_target_bundle"] == "com.apple.AppKit"
+                     or (isinstance(resolved, A.NSDocumentController)
+                         and isinstance(resolved.clearRecentDocuments_, objc.native_selector))))
     checkpoint("Recent menu registration: " + json.dumps(status))
     return status["registered"] and status["native_clear_target"]
 

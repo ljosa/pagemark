@@ -92,7 +92,7 @@ class RecordingOpenApplication(F.NSObject):
         self.replies.append(reply)
 
 
-class CallbackTestDocumentController(application.A.NSDocumentController):
+class CallbackTestDocumentController(application.PagemarkDocumentController):
     def noteNewRecentDocument_(self, document):
         pass  # Never add test fixtures to the user's recent-document history.
 
@@ -100,9 +100,14 @@ class CallbackTestDocumentController(application.A.NSDocumentController):
         pass
 
 
+# Install before any test asks AppKit for its singleton. Later init calls return
+# this same controller, so every test removes its documents in a finally block.
+_test_controller = CallbackTestDocumentController.alloc().init()
+assert isinstance(_test_controller, CallbackTestDocumentController)
+
+
 @pytest.mark.parametrize("already_open", [False, True])
 def test_native_open_callback_delivers_document_bool_and_error(tmp_path, already_open):
-    # Keep this independent controller from becoming the app's shared one.
     application.A.NSDocumentController.sharedDocumentController()
     controller = CallbackTestDocumentController.alloc().init()
     url = F.NSURL.fileURLWithPath_(str(tmp_path / "callback-fixture.txt"))
@@ -178,3 +183,124 @@ def test_system_open_events_show_errors_and_reply_after_all_opens(monkeypatch, e
     expected = (application.A.NSApplicationDelegateReplyFailure if errors
                 else application.A.NSApplicationDelegateReplySuccess)
     assert app.replies == [expected]
+
+
+class TransientTestDocument(application.PagemarkDocument):
+    @objc.python_method
+    def clear_recovery(self):
+        pass  # Tests must not touch the user's recovery store.
+
+    @objc.python_method
+    def schedule_recovery(self):
+        pass
+
+    def showWindows(self):
+        pass  # Exercise native opening without creating windows.
+
+    def close(self):
+        self.close_count = getattr(self, "close_count", 0) + 1
+        objc.super(TransientTestDocument, self).close()
+
+
+@pytest.mark.parametrize("state", ["untouched", "explicit_new", "edited_undone", "saved",
+                                    "dirty", "composition", "nonempty"])
+@pytest.mark.parametrize("succeeds", [False, True])
+@pytest.mark.parametrize("display", [False, True])
+def test_native_open_replaces_only_untouched_startup_document(tmp_path, state, succeeds, display):
+    application.A.NSDocumentController.sharedDocumentController()
+    controller = CallbackTestDocumentController.alloc().init()
+    blank = TransientTestDocument.alloc().init()
+    blank.transient_startup = state != "explicit_new"
+    if state == "edited_undone":
+        snapshot = blank.session.snapshot()
+        blank.session.insert("x")
+        blank.restore_snapshot(snapshot)
+        assert blank.session.value.text == ""
+    elif state == "saved":
+        blank.setFileURL_(F.NSURL.fileURLWithPath_(str(tmp_path / "saved.txt")))
+    elif state == "dirty":
+        blank.updateChangeCount_(application.A.NSChangeDone)
+    elif state == "composition":
+        blank.editor = SimpleNamespace(hasMarkedText=lambda: True)
+    elif state == "nonempty":
+        blank.session.restore(application.Snapshot(application.StyledText("x", (0,)), 1, None, 0))
+    controller.addDocument_(blank)
+    opened = TransientTestDocument.alloc().init()
+    url = F.NSURL.fileURLWithPath_(str(tmp_path / "open-fixture.txt"))
+    opened.setFileURL_(url)
+    if succeeds:
+        controller.addDocument_(opened)
+    results = []
+    try:
+        controller.openDocumentWithContentsOfURL_display_completionHandler_(
+            url, display, lambda *args: results.append(args))
+        deadline = time.monotonic() + 3
+        while not results and time.monotonic() < deadline:
+            F.NSRunLoop.mainRunLoop().runUntilDate_(F.NSDate.dateWithTimeIntervalSinceNow_(0.01))
+        assert len(results) == 1
+        assert (results[0][2] is None) is succeeds
+        assert getattr(blank, "close_count", 0) == int(display and succeeds and state == "untouched")
+    finally:
+        blank.editor = None
+        for document in list(controller.documents()):
+            controller.removeDocument_(document)
+
+
+@pytest.mark.parametrize("intervening_action", ["edit", "close", "none"])
+def test_async_open_rechecks_startup_document_and_closes_it_only_once(monkeypatch, intervening_action):
+    application.A.NSDocumentController.sharedDocumentController()
+    controller = CallbackTestDocumentController.alloc().init()
+    blank = TransientTestDocument.alloc().init()
+    blank.transient_startup = True
+    controller.addDocument_(blank)
+    pending = []
+    native_super = objc.super
+
+    def deferred_super(cls, instance):
+        if cls is application.PagemarkDocumentController:
+            return SimpleNamespace(openDocumentWithContentsOfURL_display_completionHandler_=
+                                   lambda url, display, callback: pending.append(callback))
+        return native_super(cls, instance)
+
+    monkeypatch.setattr(objc, "super", deferred_super)
+    results = []
+    try:
+        for _ in range(2):
+            controller.openDocumentWithContentsOfURL_display_completionHandler_(
+                F.NSURL.fileURLWithPath_("/fixture.txt"), True, lambda *args: results.append(args))
+        if intervening_action == "edit":
+            blank.session.insert("x")
+        elif intervening_action == "close":
+            controller.removeDocument_(blank)
+        opened = TransientTestDocument.alloc().init()
+        for callback in reversed(pending):
+            callback(opened, False, None)
+        assert len(results) == 2
+        assert getattr(blank, "close_count", 0) == int(intervening_action == "none")
+    finally:
+        for document in list(controller.documents()):
+            controller.removeDocument_(document)
+
+
+@pytest.mark.parametrize("existing", [False, True])
+def test_launch_marks_only_automatically_created_document_transient(monkeypatch, existing):
+    document = TransientTestDocument.alloc().init()
+    documents = [document] if existing else []
+    requests = []
+
+    def open_untitled(display, error):
+        requests.append(display)
+        documents.append(document)
+        return document, None
+
+    controller = SimpleNamespace(documents=lambda: documents,
+                                 openUntitledDocumentAndDisplay_error_=open_untitled)
+    monkeypatch.setattr(application.A, "NSDocumentController", SimpleNamespace(
+        sharedDocumentController=lambda: controller))
+    monkeypatch.setattr(application.A, "NSApp", SimpleNamespace(
+        activateIgnoringOtherApps_=lambda activate: None))
+    delegate = application.PagemarkDelegate.alloc().init()
+    monkeypatch.setattr(delegate, "recoverDocuments_", lambda sender: None)
+    delegate.applicationDidFinishLaunching_(None)
+    assert document.transient_startup is (not existing)
+    assert requests == ([] if existing else [True])

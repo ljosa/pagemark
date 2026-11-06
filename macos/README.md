@@ -16,6 +16,10 @@ temporary Find row, with “No matches” beside the search field when needed;
 state use the native document window and file dialogs. Recovery failures use
 the native error dialog, suppressing repeats until recovery succeeds again.
 
+The untouched blank document created at startup closes when another document
+opens successfully through Open, Open Recent, or Finder. Editing or saving it
+keeps it open; documents explicitly created with New are also kept.
+
 **View > Fit Width** adjusts zoom to fit the existing window: the page area
 in Continuous/Pages, or the writing column in Draft. **View > Resize Window
 to Fit** adjusts window width at the current zoom, preserving height and

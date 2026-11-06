@@ -10,6 +10,7 @@ import uuid
 from .codec import BOLD, UNDERLINE, StyledText, decode, encode, utf16_offsets
 from .cocoa_compat import configure_document_open_callback
 from .display_preferences import Appearance, ViewMode
+from .document_controller import PagemarkDocumentController
 from .native_editor import PagemarkEditorView
 from .native_find import FindBar
 from .native_help import HelpController
@@ -119,6 +120,7 @@ class PagemarkDocument(A.NSDocument):
         self = objc.super(PagemarkDocument, self).init()
         if self is not None:
             self.content = StyledText("", ())
+            self.transient_startup = False
             self.original_bytes = None
             self.session = EditorSession(on_change=self.editor_changed)
             self.editor = self.find_bar = None
@@ -174,6 +176,8 @@ class PagemarkDocument(A.NSDocument):
 
     @objc.python_method
     def editor_changed(self, before, after):
+        # Once touched, this is the user's document even if they undo to empty.
+        self.transient_startup = False
         manager = self.undoManager()
         manager.registerUndoWithTarget_handler_(self, lambda target: target.restore_snapshot(before))
         manager.setActionName_("Edit")
@@ -354,7 +358,11 @@ class PagemarkDelegate(F.NSObject):
     def applicationDidFinishLaunching_(self, notification):
         controller = A.NSDocumentController.sharedDocumentController()
         if not controller.documents():
-            controller.newDocument_(None)
+            document, error = controller.openUntitledDocumentAndDisplay_error_(True, None)
+            if document is not None:
+                document.transient_startup = True
+            elif error is not None:
+                A.NSApp.presentError_(error)
         A.NSApp.activateIgnoringOtherApps_(True)
         self.recoverDocuments_(None)
 
@@ -623,6 +631,9 @@ def configure_menu(app, delegate):
 
 def run():
     app = A.NSApplication.sharedApplication()
+    # The first controller instantiated becomes AppKit's shared controller.
+    # Install it before menus or launch events request the default instance.
+    _controller = PagemarkDocumentController.alloc().init()
     app.setActivationPolicy_(A.NSApplicationActivationPolicyRegular)
     apply_appearance(app, display_preferences().appearance)
     delegate = PagemarkDelegate.alloc().init()
