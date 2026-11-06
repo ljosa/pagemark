@@ -169,6 +169,7 @@ def check_editor():
             editor.view_mode = mode
             editor.refresh()
         views = document.session.snapshot() == before
+        views = views and not editor.window().subtitle()
         views = views and bool(editor.window().collectionBehavior() & A.NSWindowCollectionBehaviorFullScreenPrimary)
         checkpoint("checking display preferences and native appearance")
         display = check_display_preferences(app, delegate)

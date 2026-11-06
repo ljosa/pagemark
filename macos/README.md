@@ -3,12 +3,13 @@
 A sandboxed Mac front end for [terminal Pagemark](../README.md). Product scope
 and implementation milestones are in [PLAN.md](PLAN.md).
 
-## Current build: editor preview 0.2.13
+## Current build: 0.2.14
 
 The Mac app now lives alongside the terminal app. Both import `pagemark_core`
 directly; OS access lives in `pagemark_platform`. See the repository
 [architecture](../ARCHITECTURE.md) for package boundaries and test commands.
 
+Document windows show their native filename title without the editor-preview subtitle.
 The editor fills the window without a status bar. **Command-F** opens a
 temporary Find row, with “No matches” beside the search field when needed;
 **Escape** closes it and restores the full editing area. Filenames and save
@@ -142,7 +143,7 @@ callback, Command/Control events, formatting, undo/redo, switching views, and
 native Preferences controls and appearance handling. The probe also checks
 zoom shortcuts, synthetic pinch input and native scroll anchors, plus both
 fit actions in a real hidden window, plus Find feedback and restoration of the
-full editing area after closing Find. The 0.2.13 signed probe run and physical
+full editing area after closing Find. The 0.2.14 signed probe run and physical
 trackpad interaction are pending.
 Each run retains its reports
 in `.build/check.*`; the latest

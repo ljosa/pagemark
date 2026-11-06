@@ -1,6 +1,6 @@
 # Editor preview checks on the Mac
 
-The current build is **0.2.13**, which uses the shared core directly and keeps Find
+The current build is **0.2.14**, which uses the shared core directly and keeps Find
 feedback beside its temporary search field. It includes **View > Fit Width**,
 **Resize Window to Fit**, and pinch and Command-+/−/0 zoom with
 remembered scales in place of the Draft font-size preference, plus Draft,
@@ -30,7 +30,7 @@ is saving styled edits and verifying interchange with terminal Pagemark
 (step 5 below).
 
 After rebuilding, quit the earlier preview and run `tools/check_sandbox.command`.
-Both reports should identify version **0.2.13**. Phase 1 checks the runtime and
+Both reports should identify version **0.2.14**. Phase 1 checks the runtime and
 sandbox; phase 2's fourteen native editor checks, including `command_shortcuts`,
 `command_navigation`, `native_recent_menu`, `native_document_open_callback`,
 `native_display_preferences`, `native_zoom_controls`, `native_fit_actions`,
@@ -52,7 +52,8 @@ resizing, and returning the full content area to the editor after closing Find.
 
 ## Short interaction check
 
-1. In the opened window, type two paragraphs and a long `- ` bullet paragraph.
+1. Confirm the title bar has no editor-preview subtitle. In the opened
+   window, type two paragraphs and a long `- ` bullet paragraph.
    Try an accented character through Option and a composed input method if
    available. Use Control-B and Control-U while typing and on a selection.
 2. Drag-select across wrapped lines; Shift-click to extend. Drag below the

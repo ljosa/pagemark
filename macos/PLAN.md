@@ -1,6 +1,6 @@
 # Pagemark for macOS — implementation plan
 
-Status: the current build is 0.2.13, using the unified repository and shared
+Status: the current build is 0.2.14, using the unified repository and shared
 core. There is no persistent status bar; search feedback stays in a temporary
 Find row. It includes Fit Width and
 Resize Window to Fit actions, plus pinch and Command-+/−/0 zoom with remembered

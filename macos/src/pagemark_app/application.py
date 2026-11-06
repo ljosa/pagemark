@@ -236,7 +236,6 @@ class PagemarkDocument(A.NSDocument):
             A.NSWindowStyleMaskTitled | A.NSWindowStyleMaskClosable |
             A.NSWindowStyleMaskMiniaturizable | A.NSWindowStyleMaskResizable,
             A.NSBackingStoreBuffered, False)
-        window.setSubtitle_("Pagemark — editor preview")
         window.setRestorable_(False)
         window.setCollectionBehavior_(A.NSWindowCollectionBehaviorFullScreenPrimary)
         window.setMinSize_((480, 320))

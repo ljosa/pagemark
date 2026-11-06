@@ -198,8 +198,8 @@ def build(source_root: Path, identity: str) -> Path:
     plist = {
         "CFBundleName": "Pagemark", "CFBundleDisplayName": "Pagemark",
         "CFBundleExecutable": "Pagemark", "CFBundleIdentifier": "org.pagemark.mac",
-        "CFBundlePackageType": "APPL", "CFBundleVersion": "15",
-        "CFBundleShortVersionString": "0.2.13", "LSMinimumSystemVersion": "12.0",
+        "CFBundlePackageType": "APPL", "CFBundleVersion": "16",
+        "CFBundleShortVersionString": "0.2.14", "LSMinimumSystemVersion": "12.0",
         "NSHighResolutionCapable": True, "NSPrincipalClass": "NSApplication",
         "CFBundleDocumentTypes": [{"CFBundleTypeName": "Pagemark text",
             "CFBundleTypeRole": "Editor", "LSHandlerRank": "Alternate",
