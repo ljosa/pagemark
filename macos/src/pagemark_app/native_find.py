@@ -9,6 +9,7 @@ class FindBar:
     def __init__(self, editor, delegate):
         self.editor = editor
         self.origin = 0
+        self.match = None
         content = editor.enclosingScrollView().superview()
         width = content.bounds().size.width
         self.view = A.NSView.alloc().initWithFrame_(F.NSMakeRect(0, 0, width, self.HEIGHT))
@@ -28,6 +29,8 @@ class FindBar:
         content.addSubview_(self.view)
 
     def set_visible(self, visible):
+        if not visible:
+            self.match = None
         scroll = self.editor.enclosingScrollView()
         frame = scroll.superview().bounds()
         if visible:
@@ -39,6 +42,7 @@ class FindBar:
 
     def show(self):
         self.editor.unmarkText()
+        self.match = None
         self.origin = self.editor.session.selection[0]
         self.feedback.setStringValue_("")
         self.set_visible(True)
@@ -47,9 +51,9 @@ class FindBar:
     def find(self, start, backwards=False):
         query = str(self.field.stringValue())
         found = bool(query) and self.editor.session.find(query, start, backwards)
+        self.match = self.editor.session.selection if found else None
         self.feedback.setStringValue_("No matches" if query and not found else "")
-        if found or not query:
-            self.editor.refresh()
+        self.editor.refresh(reveal=bool(found) or not query)
         return found
 
     def text_changed(self):

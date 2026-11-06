@@ -272,6 +272,11 @@ class PagemarkEditorView(A.NSView, protocols=[objc.protocolNamed("NSTextInputCli
         first = max(0, g.line_at_y(dirty.origin.y) - 1)
         last = min(layout.line_count, g.line_at_y(F.NSMaxY(dirty)) + 2)
         focused = self.window() and self.window().firstResponder() == self
+        find_bar = getattr(self.document, "find_bar", None)
+        # Keep the found text emphasized while keyboard focus is in Find.
+        # The inactive-selection gray is too subtle for locating a match.
+        emphasized = focused or (find_bar is not None and not find_bar.view.isHidden()
+                                 and find_bar.match == (start, end))
         for index in range(first, last):
             row = layout.line_at(index)
             paragraph, local = layout.locate_line(index)
@@ -284,12 +289,12 @@ class PagemarkEditorView(A.NSView, protocols=[objc.protocolNamed("NSTextInputCli
                 left, right = span or (layout.paragraphs[paragraph].visual_column(row.end),) * 2
                 if selected_newline:
                     right += 1
-                (A.NSColor.selectedTextBackgroundColor() if focused
+                (A.NSColor.selectedTextBackgroundColor() if emphasized
                  else A.NSColor.unemphasizedSelectedTextBackgroundColor()).set()
                 A.NSRectFill(F.NSMakeRect(x + left * g.cell_width, y + g.ink_top,
                                         max(1, right - left) * g.cell_width, g.ink_height))
             self.painter.draw(row, self.session.model.styles[paragraph], start - base, end - base,
-                              focused, x, y, g, self.screen_font)
+                              emphasized, x, y, g, self.screen_font)
         if focused and self.caret_visible and start == end:
             A.NSColor.textColor().set()
             A.NSRectFill(self.caret_rect())

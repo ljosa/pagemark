@@ -58,7 +58,7 @@ def search_document(monkeypatch, request):
     content.addSubview_(scroll)
     editor = SimpleNamespace(session=document.session, enclosingScrollView=lambda: scroll,
                              unmarkText=lambda: unmarks.append(True),
-                             refresh=lambda: refreshes.append(True),
+                             refresh=lambda reveal=True: refreshes.append(reveal),
                              window=lambda: SimpleNamespace(makeFirstResponder_=focus.append))
     document.editor = editor
     document.find_bar = native_find.FindBar(editor, document)
