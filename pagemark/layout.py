@@ -390,8 +390,26 @@ class DocumentLayout:
     line_count: int
 
     @classmethod
-    def build(cls, paragraphs: Sequence[str], width: int) -> DocumentLayout:
-        layouts = tuple(layout_paragraph(text, width) for text in paragraphs) or (
+    def build(
+        cls, paragraphs: Sequence[str], width: int, *,
+        previous: DocumentLayout | None = None,
+    ) -> DocumentLayout:
+        """Build an immutable layout, retaining unchanged paragraph layouts.
+
+        A view owns its previous document layout. Reusing that layout avoids
+        depending on the small process-wide paragraph LRU for a whole document:
+        scanning a document larger than the LRU otherwise evicts every entry
+        before the next edit can reuse it. Width is part of paragraph identity;
+        styles and presentation geometry do not affect wrapping.
+        """
+        retained = {
+            item.paragraph: item for item in previous.paragraphs
+            if item.num_columns == width
+        } if previous is not None else {}
+        layouts = tuple(
+            retained[text] if text in retained else layout_paragraph(text, width)
+            for text in paragraphs
+        ) or (
             layout_paragraph("", width),
         )
         starts = []

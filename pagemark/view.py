@@ -29,6 +29,7 @@ class TerminalTextView(TextView):
         self.line_styles: list[list[int]] = []
         self._frame_rows: tuple[TextRow | PageBreakRow, ...] = ()
         self._layout_key = None
+        self._layout = None
 
     @property
     def desired_x(self) -> int:
@@ -54,7 +55,7 @@ class TerminalTextView(TextView):
     def _document_layout(self) -> DocumentLayout:
         key = (tuple(self.model.paragraphs), self.num_columns)
         if key != self._layout_key:
-            self._layout = DocumentLayout.build(key[0], key[1])
+            self._layout = DocumentLayout.build(key[0], key[1], previous=self._layout)
             self._layout_key = key
         return self._layout
 
