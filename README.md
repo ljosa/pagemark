@@ -41,3 +41,5 @@ The sandboxed native Mac application lives in [macos/](macos/README.md), with
 its own packaging, dependencies, tests, version and release process. The terminal
 application keeps its existing command and installation workflow. Both front
 ends share the document model, layout and PDF machinery in this repository.
+
+Package boundaries and validation commands are in [ARCHITECTURE.md](ARCHITECTURE.md).

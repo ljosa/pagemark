@@ -1,15 +1,5 @@
-"""Coordinate types shared by the pure editor components."""
+"""Compatibility import; implementation lives in pagemark_core."""
+import sys
+from pagemark_core import coordinates as _implementation
 
-from dataclasses import dataclass
-from typing import NewType
-
-SourceOffset = NewType("SourceOffset", int)
-CellColumn = NewType("CellColumn", int)
-ContentLineIndex = NewType("ContentLineIndex", int)
-ScreenRowIndex = NewType("ScreenRowIndex", int)
-
-
-@dataclass(frozen=True, order=True)
-class DocumentPosition:
-    paragraph_index: int = 0
-    character_index: int = 0
+sys.modules[__name__] = _implementation

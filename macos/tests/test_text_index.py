@@ -3,7 +3,6 @@ from bisect import bisect_left, bisect_right
 
 import pytest
 
-pytest.importorskip("pagemark_core")
 pytest.importorskip("Foundation")
 
 from pagemark_app.codec import StyledText, utf16_offsets  # noqa: E402

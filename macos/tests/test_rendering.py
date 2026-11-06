@@ -1,7 +1,6 @@
 """Batching must preserve fixed cells, source styles and selection boundaries."""
 import pytest
 
-pytest.importorskip("pagemark_core")
 
 from pagemark_core.layout import layout_paragraph  # noqa: E402
 from pagemark_core.text_layout import display_spans  # noqa: E402

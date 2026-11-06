@@ -35,6 +35,11 @@ allow-direct-references = true
 [tool.hatch.build.hooks.custom]
 
 [tool.hatch.build.targets.wheel]
+packages = ["pagemark", "pagemark_core", "pagemark_platform"]
 artifacts = [
   "pagemark/_build_info.py",
 ]
+
+[tool.pytest.ini_options]
+testpaths = ["tests", "tests_core"]
+pythonpath = ["."]

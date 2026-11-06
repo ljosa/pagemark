@@ -5,7 +5,6 @@ import uuid
 
 import pytest
 
-pytest.importorskip("pagemark_core")
 F = pytest.importorskip("Foundation")
 A = pytest.importorskip("AppKit")
 

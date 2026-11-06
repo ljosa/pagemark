@@ -8,7 +8,6 @@ import pytest
 
 if sys.platform != "darwin":
     pytest.skip("Requires macOS AppKit", allow_module_level=True)
-pytest.importorskip("pagemark_core", reason="Build the app and include Resources/python on PYTHONPATH")
 F = pytest.importorskip("Foundation")
 objc = pytest.importorskip("objc")
 

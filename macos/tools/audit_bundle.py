@@ -9,7 +9,7 @@ from pathlib import Path
 import plistlib
 import subprocess
 
-from build_app import ROOT, dependencies, is_macho, system_library
+from build_app import ROOT, SHARED_PACKAGES, dependencies, is_macho, system_library
 
 ALLOWED_ENTITLEMENTS = {
     "com.apple.security.app-sandbox",
@@ -50,8 +50,11 @@ def audit(app: Path) -> dict:
             if not resolved.is_relative_to(app) or not resolved.exists():
                 raise ValueError(f"Missing/escaping library: {name} in {path}")
     manifest = json.loads((app / "Contents/Resources/build-manifest.json").read_text())
-    for relative, expected in manifest["core_files"].items():
-        module = app / "Contents/Resources/python/pagemark_core" / Path(relative).name
+    for relative, expected in manifest["shared_files"].items():
+        path = Path(relative)
+        if path.is_absolute() or ".." in path.parts or path.parts[0] not in SHARED_PACKAGES:
+            raise ValueError(f"Invalid shared source path: {relative}")
+        module = app / "Contents/Resources/python" / path
         if hashlib.sha256(module.read_bytes()).hexdigest() != expected:
             raise ValueError(f"Shared core hash mismatch: {relative}")
     return {"signature": "valid", "entitlements": entitlements,

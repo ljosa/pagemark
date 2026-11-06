@@ -1,7 +1,6 @@
 """Recovery failures remain visible without repeatedly interrupting typing."""
 import pytest
 
-pytest.importorskip("pagemark_core")
 objc = pytest.importorskip("objc")
 
 from pagemark_app import application  # noqa: E402

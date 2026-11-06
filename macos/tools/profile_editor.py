@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Measure synthetic edit, layout, navigation and offscreen drawing costs.
 
-Run with the app's Resources/python and src on PYTHONPATH, using the build
+Run with src and the repository root on PYTHONPATH, using the build
 interpreter. This never launches NSApplication, opens a user document, writes
 recovery data or submits a print job. It does not measure key-to-screen latency.
 """

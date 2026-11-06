@@ -3,7 +3,6 @@ from types import SimpleNamespace
 
 import pytest
 
-pytest.importorskip("pagemark_core")
 A = pytest.importorskip("AppKit")
 F = pytest.importorskip("Foundation")
 

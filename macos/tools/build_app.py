@@ -25,11 +25,7 @@ PACKAGES = {
     "reportlab": "4.4.9", "pillow": "12.1.0",
     "charset-normalizer": "3.4.4", "wcwidth": "0.2.13",
 }
-CORE_MODULES = (
-    "buffer", "coordinates", "layout", "navigation", "viewport", "text_layout",
-    "font_config", "print_formatter", "pdf_generator", "booklet",
-    "model", "clipboard", "rtf_parser",
-)
+SHARED_PACKAGES = ("pagemark_core", "pagemark_platform")
 MACH_MAGIC = {b"\xfe\xed\xfa\xce", b"\xce\xfa\xed\xfe", b"\xfe\xed\xfa\xcf",
               b"\xcf\xfa\xed\xfe", b"\xca\xfe\xba\xbe", b"\xbe\xba\xfe\xca"}
 
@@ -110,18 +106,24 @@ def copy_packages(destination: Path) -> dict[Path, Path]:
     return origins
 
 
-def copy_core(source: Path, destination: Path) -> dict[str, str]:
-    destination.mkdir(parents=True)
-    (destination / "__init__.py").write_text(
-        '"""Unmodified modules from Pagemark; see build-manifest.json."""\n')
+def copy_shared_packages(source: Path, destination: Path) -> dict[str, str]:
+    """Bundle the same packages imported by both front ends during development."""
     hashes = {}
-    for name in CORE_MODULES:
-        module = source / "pagemark" / f"{name}.py"
-        if not module.resolve().is_relative_to((source / "pagemark").resolve()):
-            raise RuntimeError(f"Core source escapes its package: {module}")
-        data = module.read_bytes()
-        (destination / f"{name}.py").write_bytes(data)
-        hashes[f"pagemark/{name}.py"] = hashlib.sha256(data).hexdigest()
+    for name in SHARED_PACKAGES:
+        package = source / name
+        if not (package / "__init__.py").is_file():
+            raise RuntimeError(f"Missing shared package: {package}")
+        for module in sorted(package.rglob("*.py")):
+            if "__pycache__" in module.parts:
+                continue
+            if not module.resolve().is_relative_to(package.resolve()):
+                raise RuntimeError(f"Shared source escapes its package: {module}")
+            relative = module.relative_to(source)
+            target = destination / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            data = module.read_bytes()
+            target.write_bytes(data)
+            hashes[relative.as_posix()] = hashlib.sha256(data).hexdigest()
     return hashes
 
 
@@ -170,7 +172,7 @@ def relocate_libraries(app: Path, origins: dict[Path, Path]) -> None:
                 raise RuntimeError(f"Dependency escapes bundle: {name} in {target}")
 
 
-def build(core: Path, identity: str) -> Path:
+def build(source_root: Path, identity: str) -> Path:
     stage = ROOT / ".build/Pagemark.app"
     final = ROOT / "dist/Pagemark.app"
     if stage.exists():
@@ -183,10 +185,11 @@ def build(core: Path, identity: str) -> Path:
     origins.update(copy_packages(python))
     shutil.copytree(ROOT / "src/pagemark_app", python / "pagemark_app",
                     ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
-    core_hashes = copy_core(core, python / "pagemark_core")
+    shared_hashes = copy_shared_packages(source_root, python)
     manifest = {
-        "python": sys.version.split()[0], "packages": PACKAGES, "core_files": core_hashes,
-        "core_commit": run("git", "-C", core, "rev-parse", "HEAD").strip(),
+        "python": sys.version.split()[0], "packages": PACKAGES, "shared_files": shared_hashes,
+        "source_commit": run("git", "-C", source_root, "rev-parse", "HEAD").strip(),
+        "source_dirty": bool(run("git", "-C", source_root, "status", "--porcelain")),
         "signing": "ad-hoc development" if identity == "-" else "Developer ID",
         "hardened_runtime": identity != "-",
         "sandboxed": True,
@@ -195,8 +198,8 @@ def build(core: Path, identity: str) -> Path:
     plist = {
         "CFBundleName": "Pagemark", "CFBundleDisplayName": "Pagemark",
         "CFBundleExecutable": "Pagemark", "CFBundleIdentifier": "org.pagemark.mac",
-        "CFBundlePackageType": "APPL", "CFBundleVersion": "13",
-        "CFBundleShortVersionString": "0.2.11", "LSMinimumSystemVersion": "12.0",
+        "CFBundlePackageType": "APPL", "CFBundleVersion": "14",
+        "CFBundleShortVersionString": "0.2.12", "LSMinimumSystemVersion": "12.0",
         "NSHighResolutionCapable": True, "NSPrincipalClass": "NSApplication",
         "CFBundleDocumentTypes": [{"CFBundleTypeName": "Pagemark text",
             "CFBundleTypeRole": "Editor", "LSHandlerRank": "Alternate",
@@ -242,11 +245,11 @@ def build(core: Path, identity: str) -> Path:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--core", type=Path, default=ROOT.parent)
+    parser.add_argument("--source-root", "--core", type=Path, default=ROOT.parent)
     parser.add_argument("--identity", default="-", help="Signing identity; default is local ad-hoc")
     args = parser.parse_args()
     try:
-        print(build(args.core.resolve(), args.identity), flush=True)
+        print(build(args.source_root.resolve(), args.identity), flush=True)
     except subprocess.CalledProcessError as exc:
         print(exc.stderr, file=sys.stderr)
         raise SystemExit(f"Build failed: {' '.join(str(a) for a in exc.cmd)}") from exc

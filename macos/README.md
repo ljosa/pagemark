@@ -3,7 +3,11 @@
 A sandboxed Mac front end for [terminal Pagemark](../README.md). Product scope
 and implementation milestones are in [PLAN.md](PLAN.md).
 
-## Current build: editor preview 0.2.11
+## Current build: editor preview 0.2.12
+
+The Mac app now lives alongside the terminal app. Both import `pagemark_core`
+directly; OS access lives in `pagemark_platform`. See the repository
+[architecture](../ARCHITECTURE.md) for package boundaries and test commands.
 
 The editor fills the window without a status bar. **Command-F** opens a
 temporary Find row, with “No matches” beside the search field when needed;
@@ -77,8 +81,8 @@ open dist/Pagemark.app
 ```
 
 The builder copies the runtime, an explicit set of versioned dependencies,
-and unmodified core modules into the app. Its generated manifest records the
-source revision and hashes. All non-system dynamic libraries are relocated
+and the shared core/platform packages into the app. Its generated manifest records the
+repository revision, dirty-state flag, and exact shared-package source hashes. All non-system dynamic libraries are relocated
 inside the bundle. The native launcher links AppKit and initializes the Cocoa
 application before starting Python. It uses isolated Python configuration with
 environment/user-site imports and bytecode writes disabled. The installed
@@ -135,7 +139,7 @@ callback, Command/Control events, formatting, undo/redo, switching views, and
 native Preferences controls and appearance handling. The probe also checks
 zoom shortcuts, synthetic pinch input and native scroll anchors, plus both
 fit actions in a real hidden window, plus Find feedback and restoration of the
-full editing area after closing Find. The 0.2.11 signed probe run and physical
+full editing area after closing Find. The 0.2.12 signed probe run and physical
 trackpad interaction are pending.
 Each run retains its reports
 in `.build/check.*`; the latest
@@ -173,11 +177,10 @@ verification on the Mac.
 
 ## Tests
 
-After building:
+From `macos/`, without building first:
 
 ```sh
-PYTHONPATH=dist/Pagemark.app/Contents/Resources/python \
-  ../.venv/bin/python -B -m pytest -q
+../.venv/bin/python -B -m pytest -q
 ../.venv/bin/ruff check src tools tests
 ```
 

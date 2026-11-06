@@ -3,7 +3,6 @@ from math import ceil
 
 import pytest
 
-pytest.importorskip("pagemark_core")
 A = pytest.importorskip("AppKit")
 F = pytest.importorskip("Foundation")
 objc = pytest.importorskip("objc")

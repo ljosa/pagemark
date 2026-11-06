@@ -1,6 +1,4 @@
-from pathlib import Path
 import random
-import types
 
 import pytest
 
@@ -41,25 +39,12 @@ def test_utf16_offsets_cover_non_bmp_and_combining_characters():
     assert utf16_offsets("a😀é") == [0, 1, 3, 4, 5]
 
 
-def test_decoder_matches_terminal_implementation():
-    # Load only the legacy static codec, without importing/starting the terminal.
-    import ast
-    source = Path(__file__).resolve().parents[2] / "pagemark/model.py"
-    if not source.exists():
-        pytest.fail("The repository's Pagemark model is missing")
-    tree = ast.parse(source.read_text())
-    cls = next(node for node in tree.body if isinstance(node, ast.ClassDef)
-               and node.name == "TextModel")
-    method = next(node for node in cls.body if isinstance(node, ast.FunctionDef)
-                  and node.name == "_parse_overstrike_paragraph")
-    method.decorator_list = []
-    namespace = {"StyleFlags": types.SimpleNamespace(UNDERLINE=UNDERLINE, BOLD=BOLD),
-                 "StyleMask": list[int], "List": list}
-    exec(compile(ast.Module(body=[method], type_ignores=[]), str(source), "exec"), namespace)
-    parse = namespace[method.name]
+def test_decoder_matches_terminal_model():
+    from types import SimpleNamespace
+    from pagemark.model import TextModel
+
     rng = random.Random(41)
     for _ in range(500):
         raw = "".join(rng.choice("abc_\b😀é") for _ in range(rng.randrange(30)))
-        text, styles = parse(raw)
-        assert decode(raw.encode()) == StyledText(text, tuple(styles))
-
+        model = TextModel.from_overstrike_text(SimpleNamespace(render=lambda: None), raw)
+        assert decode(raw.encode()) == StyledText(model.paragraphs[0], tuple(model.styles[0]))

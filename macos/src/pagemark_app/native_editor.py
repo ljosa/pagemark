@@ -7,7 +7,7 @@ import AppKit as A
 import Foundation as F
 import objc
 
-from pagemark_core.clipboard import ClipboardManager
+from pagemark_platform.clipboard import ClipboardManager
 from pagemark_core.coordinates import DocumentPosition
 from pagemark_core.text_layout import display_width
 

@@ -39,12 +39,10 @@ platform responsibilities should not move into the pure layout module.
   mutation stay in the editing session. The status bar and its per-refresh
   document callback were removed in 0.2.11.
 
-The shared patch was developed and tested in a workspace copy, then applied
-by the user to `../pagemark`, which this execution sandbox cannot write.
-`patches/pagemark-layout-reuse.patch` records that handoff; the builder does
-not apply it or maintain a separate modified core. The sibling checkout is
-the authoritative source and its updated modules are copied with source hashes.
-Builds now require its layout-reuse API.
+The shared layout-reuse change is committed in the unified repository.
+Both front ends now import the same `pagemark_core` implementation directly.
+The earlier cross-repository patch is retained in Git history; no manual patch
+application or separate source checkout is required.
 
 ## Measurements
 
@@ -77,7 +75,7 @@ change record rather than inferring mutations in the painter.
 Repeat the current measurements after building:
 
 ```sh
-PYTHONPATH=src:dist/Pagemark.app/Contents/Resources/python \
+PYTHONPATH=src:.. \
   ../.venv/bin/python -B tools/profile_editor.py \
   --output .build/editor-performance.json
 ```

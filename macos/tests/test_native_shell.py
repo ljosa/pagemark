@@ -7,7 +7,6 @@ import pytest
 
 if sys.platform != "darwin":
     pytest.skip("Requires macOS AppKit", allow_module_level=True)
-pytest.importorskip("pagemark_core", reason="Build the app and include its Resources/python on PYTHONPATH")
 F = pytest.importorskip("Foundation")
 
 from pagemark_app.application import PDFPrintView, PagemarkDocument, attributed, pdf_for, styled  # noqa: E402

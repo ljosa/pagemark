@@ -1,7 +1,8 @@
 # Pagemark for macOS — implementation plan
 
-Status: the current build is 0.2.11, removing the persistent status bar and
-keeping search feedback in a temporary Find row. It includes Fit Width and
+Status: the current build is 0.2.12, using the unified repository and shared
+core. There is no persistent status bar; search feedback stays in a temporary
+Find row. It includes Fit Width and
 Resize Window to Fit actions, plus pinch and Command-+/−/0 zoom with remembered
 scales in place of the Draft font-size preference, along with
 Draft, font-family/appearance preferences, Full Screen, and File > Print Booklet.
@@ -17,7 +18,7 @@ The user also confirmed typing, scrolling, drag-selection and File > Open.
 Extended interaction and remaining permission checks are pending validation. See
 [README.md](README.md) and [BUILD_STATUS.md](BUILD_STATUS.md) for the current
 build and its limits. Architecture remains subject to the prototype gates
-below. Based on `../pagemark` and decisions made on 2026-11-05.
+below. Based on terminal Pagemark and decisions made on 2026-11-05.
 
 ## Agreed product contract
 
