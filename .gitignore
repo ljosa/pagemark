@@ -12,6 +12,7 @@ wheels/
 # Tool caches
 .pytest_cache/
 .ruff_cache/
+.build/
 
 # Generated at build time
 pagemark/_build_info.py

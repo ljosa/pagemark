@@ -242,7 +242,7 @@ def build(core: Path, identity: str) -> Path:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--core", type=Path, default=ROOT.parent / "pagemark")
+    parser.add_argument("--core", type=Path, default=ROOT.parent)
     parser.add_argument("--identity", default="-", help="Signing identity; default is local ad-hoc")
     args = parser.parse_args()
     try:

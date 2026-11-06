@@ -78,7 +78,7 @@ Repeat the current measurements after building:
 
 ```sh
 PYTHONPATH=src:dist/Pagemark.app/Contents/Resources/python \
-  ../pagemark/.venv/bin/python -B tools/profile_editor.py \
+  ../.venv/bin/python -B tools/profile_editor.py \
   --output .build/editor-performance.json
 ```
 

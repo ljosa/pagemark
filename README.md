@@ -34,3 +34,10 @@ Pagemark is a keyboard‑driven word processor for the terminal.
 - A terminal with a valid `TERM` (xterm‑256color, etc.)
 - macOS/iTerm2: set Option to “Esc+” for Alt key behavior
 - You may have to configure your terminal emulator to send through some keys that otherwise have special meaning to the emulator or operating system
+
+## macOS application
+
+The sandboxed native Mac application lives in [macos/](macos/README.md), with
+its own packaging, dependencies, tests, version and release process. The terminal
+application keeps its existing command and installation workflow. Both front
+ends share the document model, layout and PDF machinery in this repository.

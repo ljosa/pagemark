@@ -1,6 +1,6 @@
 # Pagemark for macOS
 
-A sandboxed Mac front end for [terminal Pagemark](../pagemark). Product scope
+A sandboxed Mac front end for [terminal Pagemark](../README.md). Product scope
 and implementation milestones are in [PLAN.md](PLAN.md).
 
 ## Current build: editor preview 0.2.11
@@ -63,7 +63,7 @@ been confirmed on this Mac. Further interaction and document-workflow checks
 are in [EDITOR_CHECK.md](EDITOR_CHECK.md). Prestige Elite font import,
 print-panel accessories, explicit external-change handling, VoiceOver
 validation, large-document performance and distribution signing remain open.
-The shared layout improvement is also applied to the sibling Pagemark checkout.
+Both front ends now live in this repository and share the layout improvement.
 
 ## Build on this Mac
 
@@ -71,8 +71,8 @@ The build uses the existing Pagemark Python 3.12 environment. It does not
 install packages, modify that checkout, or use the network:
 
 ```sh
-../pagemark/.venv/bin/python -B tools/build_app.py
-../pagemark/.venv/bin/python -B tools/audit_bundle.py
+../.venv/bin/python -B tools/build_app.py
+../.venv/bin/python -B tools/audit_bundle.py
 open dist/Pagemark.app
 ```
 
@@ -82,8 +82,7 @@ source revision and hashes. All non-system dynamic libraries are relocated
 inside the bundle. The native launcher links AppKit and initializes the Cocoa
 application before starting Python. It uses isolated Python configuration with
 environment/user-site imports and bytecode writes disabled. The installed
-source environment is needed to build, not to run the resulting app. The core
-checkout must include the layout-reuse API described in [PERFORMANCE.md](PERFORMANCE.md).
+source environment is needed to build, not to run the resulting app. The repository includes the shared layout-reuse API described in [PERFORMANCE.md](PERFORMANCE.md).
 
 Version 0.2.2 fixes the shutdown crash introduced in 0.2.1 by releasing bridged
 Cocoa objects before the interpreter is destroyed. The native host's cleanup
@@ -178,8 +177,8 @@ After building:
 
 ```sh
 PYTHONPATH=dist/Pagemark.app/Contents/Resources/python \
-  ../pagemark/.venv/bin/python -B -m pytest -q
-../pagemark/.venv/bin/ruff check src tools tests
+  ../.venv/bin/python -B -m pytest -q
+../.venv/bin/ruff check src tools tests
 ```
 
 Codec tests compare the GUI reader against the terminal implementation,

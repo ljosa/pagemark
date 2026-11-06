@@ -44,9 +44,9 @@ def test_utf16_offsets_cover_non_bmp_and_combining_characters():
 def test_decoder_matches_terminal_implementation():
     # Load only the legacy static codec, without importing/starting the terminal.
     import ast
-    source = Path(__file__).resolve().parents[2] / "pagemark/pagemark/model.py"
+    source = Path(__file__).resolve().parents[2] / "pagemark/model.py"
     if not source.exists():
-        pytest.skip("Sibling Pagemark checkout is not available")
+        pytest.fail("The repository's Pagemark model is missing")
     tree = ast.parse(source.read_text())
     cls = next(node for node in tree.body if isinstance(node, ast.ClassDef)
                and node.name == "TextModel")
