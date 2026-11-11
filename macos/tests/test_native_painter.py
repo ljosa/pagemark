@@ -144,6 +144,11 @@ def test_draft_family_without_bold_face_still_displays_bold():
     assert painter.fonts[0].fontName() == painter.fonts[1].fontName() == "Monaco"
     geometry = EditorGeometry(1, 840, draft_metrics=painter.metrics)
     row = layout_paragraph("Bold", 65).rows[0]
-    normal = bitmap_draw(lambda: painter.draw(row, [0] * 4, 0, 0, False, 10, 20, geometry, spec))
-    bold = bitmap_draw(lambda: painter.draw(row, [1] * 4, 0, 0, False, 10, 20, geometry, spec))
-    assert normal != bold
+    results = []
+    # The bitmap has a white background. A logged-in Dark Mode session would
+    # otherwise draw white text and make both images identically blank.
+    appearance = A.NSAppearance.appearanceNamed_(A.NSAppearanceNameAqua)
+    for style in (0, 1):
+        appearance.performAsCurrentDrawingAppearance_(lambda: results.append(bitmap_draw(
+            lambda: painter.draw(row, [style] * 4, 0, 0, False, 10, 20, geometry, spec))))
+    assert results[0] != results[1]

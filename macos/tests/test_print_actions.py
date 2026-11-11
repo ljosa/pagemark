@@ -61,7 +61,9 @@ def test_cancelled_booklet_job_leaves_regular_print_and_export_in_reading_order(
     delegate.performSelector_withObject_("printDocument:", None)
     assert [job["pages"] for job in jobs] == [4, 5]
     assert [job["page_size"] for job in jobs] == [(792, 612), (612, 792)]
-    assert [job["paper_size"] for job in jobs] == [(792, 612), (612, 792)]
+    for job, expected in zip(jobs, ((792, 612), (612, 792)), strict=True):
+        # Native printer settings can round-trip points through metric units.
+        assert job["paper_size"] == pytest.approx(expected, rel=0, abs=0.0001)
     assert len(unmarks) == 2
     assert document.session.snapshot() == before
     assert not document.isDocumentEdited()
