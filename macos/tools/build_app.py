@@ -20,6 +20,8 @@ import sys
 import sysconfig
 import tempfile
 
+from build_metadata import read_version
+
 ROOT = Path(__file__).resolve().parents[1]
 PACKAGES = {
     "pyobjc-core": "12.1", "pyobjc-framework-Cocoa": "12.1",
@@ -191,6 +193,7 @@ def build_icon(destination: Path) -> None:
 
 
 def build(source_root: Path, identity: str) -> Path:
+    version, build_number = read_version(ROOT)
     stage = ROOT / ".build/Pagemark.app"
     final = ROOT / "dist/Pagemark.app"
     if stage.exists():
@@ -207,6 +210,7 @@ def build(source_root: Path, identity: str) -> Path:
     shared_hashes = copy_shared_packages(source_root, python)
     manifest = {
         "python": sys.version.split()[0], "packages": PACKAGES, "shared_files": shared_hashes,
+        "version": version, "build_number": build_number, "architecture": "x86_64",
         "source_commit": run("git", "-C", source_root, "rev-parse", "HEAD").strip(),
         "source_dirty": bool(run("git", "-C", source_root, "status", "--porcelain")),
         "signing": "ad-hoc development" if identity == "-" else "Developer ID",
@@ -218,8 +222,8 @@ def build(source_root: Path, identity: str) -> Path:
         "CFBundleName": "Pagemark", "CFBundleDisplayName": "Pagemark",
         "CFBundleExecutable": "Pagemark", "CFBundleIdentifier": "org.pagemark.mac",
         "CFBundleIconFile": "Pagemark.icns",
-        "CFBundlePackageType": "APPL", "CFBundleVersion": "16",
-        "CFBundleShortVersionString": "0.2.14", "LSMinimumSystemVersion": "12.0",
+        "CFBundlePackageType": "APPL", "CFBundleVersion": build_number,
+        "CFBundleShortVersionString": version, "LSMinimumSystemVersion": "12.0",
         "NSHighResolutionCapable": True, "NSPrincipalClass": "NSApplication",
         "CFBundleDocumentTypes": [{"CFBundleTypeName": "Pagemark text",
             "CFBundleTypeRole": "Editor", "LSHandlerRank": "Alternate",
@@ -236,6 +240,14 @@ def build(source_root: Path, identity: str) -> Path:
         "-o", launcher)
     origins[launcher] = launcher
     relocate_libraries(stage, origins)
+    # The local Python environment may supply universal extension wheels.
+    # Ship one architecture consistently, including their transitive libraries.
+    for target in origins:
+        architectures = run("lipo", "-archs", target).split()
+        if "x86_64" not in architectures:
+            raise RuntimeError(f"Missing Intel code: {target}")
+        if architectures != ["x86_64"]:
+            run("lipo", target, "-thin", "x86_64", "-output", target)
     manifest["native_sources"] = [
         {"bundle_path": str(target.relative_to(stage)), "name": source.name,
          "sha256_before_signing": hashlib.sha256(source.read_bytes()).hexdigest()}

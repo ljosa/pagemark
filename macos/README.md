@@ -3,7 +3,7 @@
 A sandboxed Mac front end for [terminal Pagemark](../README.md). Product scope
 and implementation milestones are in [PLAN.md](PLAN.md).
 
-## Current build: 0.2.14
+## Current build: 0.2.15
 
 The Mac app now lives alongside the terminal app. Both import `pagemark_core`
 directly; OS access lives in `pagemark_platform`. See the repository
@@ -139,6 +139,11 @@ hardened runtime and are not notarized**: no Developer ID identity was available
 For release, `--identity 'Developer ID Application: …'` enables hardened runtime
 and timestamped signing without a library-validation exception. A release
 also needs notarization and a fresh runtime test; those are not yet complete.
+
+For versioned Intel ZIPs, checksums, clean-tag verification, signed-app probes,
+and optional Developer ID notarization, follow [RELEASING.md](RELEASING.md).
+The release command prepares local artifacts; GitHub upload and publication
+are explicit separate steps.
 
 ## Verify the signed app's sandbox
 

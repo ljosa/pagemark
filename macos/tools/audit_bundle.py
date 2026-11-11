@@ -38,6 +38,10 @@ def audit(app: Path) -> dict:
         if not is_macho(path):
             continue
         native_count += 1
+        architectures = subprocess.run(["lipo", "-archs", str(path)], check=True,
+                                       capture_output=True, text=True).stdout.split()
+        if architectures != ["x86_64"]:
+            raise ValueError(f"Expected Intel-only binary: {path}: {architectures}")
         ids = subprocess.run(["otool", "-D", str(path)], check=True,
                              capture_output=True, text=True).stdout.splitlines()[1:]
         identity = ids[0].strip() if ids else None
@@ -58,6 +62,7 @@ def audit(app: Path) -> dict:
         if hashlib.sha256(module.read_bytes()).hexdigest() != expected:
             raise ValueError(f"Shared core hash mismatch: {relative}")
     return {"signature": "valid", "entitlements": entitlements,
+            "architecture": "x86_64",
             "appkit_linked_at_launch": True,
             "native_binaries_checked": native_count,
             "self_contained": True, "signing": manifest["signing"],
