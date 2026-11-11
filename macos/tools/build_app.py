@@ -18,6 +18,7 @@ import shutil
 import subprocess
 import sys
 import sysconfig
+import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 PACKAGES = {
@@ -172,6 +173,23 @@ def relocate_libraries(app: Path, origins: dict[Path, Path]) -> None:
                 raise RuntimeError(f"Dependency escapes bundle: {name} in {target}")
 
 
+def build_icon(destination: Path) -> None:
+    """Generate all standard and Retina representations from the approved artwork."""
+    from PIL import Image
+
+    with Image.open(ROOT / "packaging/Pagemark.png") as source:
+        if source.size != (1024, 1024) or source.mode != "RGBA":
+            raise ValueError("App icon must be a 1024 × 1024 RGBA PNG")
+        with tempfile.TemporaryDirectory(suffix=".iconset", dir=ROOT / ".build") as directory:
+            iconset = Path(directory)
+            for size in (16, 32, 128, 256, 512):
+                for scale in (1, 2):
+                    suffix = "@2x" if scale == 2 else ""
+                    source.resize((size * scale, size * scale), Image.Resampling.LANCZOS).save(
+                        iconset / f"icon_{size}x{size}{suffix}.png")
+            run("iconutil", "-c", "icns", "-o", destination, iconset)
+
+
 def build(source_root: Path, identity: str) -> Path:
     stage = ROOT / ".build/Pagemark.app"
     final = ROOT / "dist/Pagemark.app"
@@ -181,6 +199,7 @@ def build(source_root: Path, identity: str) -> Path:
     python = contents / "Resources/python"
     python.mkdir(parents=True)
     (contents / "MacOS").mkdir()
+    build_icon(contents / "Resources/Pagemark.icns")
     origins = copy_runtime(stage)
     origins.update(copy_packages(python))
     shutil.copytree(ROOT / "src/pagemark_app", python / "pagemark_app",
@@ -198,6 +217,7 @@ def build(source_root: Path, identity: str) -> Path:
     plist = {
         "CFBundleName": "Pagemark", "CFBundleDisplayName": "Pagemark",
         "CFBundleExecutable": "Pagemark", "CFBundleIdentifier": "org.pagemark.mac",
+        "CFBundleIconFile": "Pagemark.icns",
         "CFBundlePackageType": "APPL", "CFBundleVersion": "16",
         "CFBundleShortVersionString": "0.2.14", "LSMinimumSystemVersion": "12.0",
         "NSHighResolutionCapable": True, "NSPrincipalClass": "NSApplication",

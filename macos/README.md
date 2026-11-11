@@ -89,6 +89,12 @@ Both front ends now live in this repository and share the layout improvement.
 
 ## Build on this Mac
 
+The app uses the approved ribbon-bookmark icon. Its transparent 1024-pixel
+source is [packaging/Pagemark.png](packaging/Pagemark.png); the builder creates
+the standard and Retina representations in `Pagemark.icns` and registers it
+in the app's `Info.plist`. The original concept and prompt are preserved in
+[the icon concepts directory](../output/imagegen/pagemark-concepts/).
+
 The build uses the existing Pagemark Python 3.12 environment. It does not
 install packages, modify that checkout, or use the network:
 
